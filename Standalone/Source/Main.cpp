@@ -1,3 +1,5 @@
+// This is the entry point for your application.
+
 #include <stdint.h>
 
 #undef min
@@ -52,6 +54,19 @@ void OctPostInitialize()
 
 void OctPreUpdate()
 {
+
+}
+
+
+void OctPreWorldInitialized()
+{
+
+}
+
+
+void OctPostWorldInitialized()
+{
+  
 
 }
 

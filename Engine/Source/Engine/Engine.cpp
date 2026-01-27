@@ -1126,7 +1126,8 @@ void GameMain(int32_t argc, char** argv)
     ReadEngineConfig();
     Initialize();
     OctPostInitialize();
-
+	OctPreWorldInitialized();
+	OctPostWorldInitialized();
     EnableConsole(true);
     EnableConsole(false);
 

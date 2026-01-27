@@ -9,6 +9,8 @@
 extern void OctPreInitialize(EngineConfig& config);
 extern void OctPostInitialize();
 extern void OctPreUpdate();
+extern void OctPreWorldInitialized();
+extern void OctPostWorldInitialized();
 extern void OctPostUpdate();
 extern void OctPreShutdown();
 extern void OctPostShutdown();

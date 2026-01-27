@@ -575,7 +575,9 @@ void EditorState::BeginPlayInEditor()
     {
         NodePtr clonedRoot = editScene->mRootNode->Clone(true, false, true);
         ResolveAllNodePathsRecursive(clonedRoot.Get());
+        OctPreWorldInitialized();
         GetWorld(0)->SetRootNode(clonedRoot.Get());
+		OctPostWorldInitialized();
     }
 }
 
