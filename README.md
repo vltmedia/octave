@@ -89,7 +89,7 @@ Instructions for building from source below.
    - Put this entry in `/opt/devkitpro/pacman/etc/pacman.conf` above the `[dkp-libs]` entry: 
    ```
       [extremscorner-devkitpro]
-      Server = https://packages.extremscorner.org/devkitpro/macos/$arch
+      Server = https://packages.extremscorner.org/devkitpro/linux/$arch
    ```
    - `sudo dkp-pacman -Syuu`
    - `sudo dkp-pacman -S libogc2 libogc2-docs libogc2-examples`

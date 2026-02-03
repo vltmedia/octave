@@ -74,12 +74,20 @@ RUN apt-get update && \
 
 # Install console development libraries
 # Create /etc/mtab symlink needed by pacman in Docker
+# Add libogc2 repo FIRST to avoid conflicts with standard devkitpro packages
 RUN ln -sf /proc/self/mounts /etc/mtab && \
     dkp-pacman -Syu --noconfirm && \
-    dkp-pacman -S --noconfirm gamecube-dev wii-dev 3ds-dev
+    dkp-pacman -S --noconfirm 3ds-dev && \
+    dkp-pacman-key --recv-keys C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE --keyserver keyserver.ubuntu.com && \
+    dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE && \
+    sed -i '/\[dkp-libs\]/i [extremscorner-devkitpro]\nServer = https://packages.extremscorner.org/devkitpro/linux/$arch\n' /opt/devkitpro/pacman/etc/pacman.conf 
+    
+RUN dkp-pacman -Syuu --noconfirm && \
+    dkp-pacman -S --noconfirm --overwrite '*' libogc2 libogc2-libfat-git libogc2-docs libogc2-examples && \
+    dkp-pacman -S --noconfirm --overwrite '*' libogc2-cmake --noconfirm 
 
 # Create libogc2 symlink (project makefiles expect this path)
-RUN ln -sf ${DEVKITPPC} ${DEVKITPRO}/libogc2
+# RUN ln -sf ${DEVKITPPC} ${DEVKITPRO}/libogc2
 
 # Create directories
 RUN mkdir -p /octave /game /project /intermediate

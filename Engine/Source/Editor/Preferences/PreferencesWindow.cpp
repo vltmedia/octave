@@ -206,4 +206,17 @@ void PreferencesWindow::DrawFooter()
     }
 }
 
+void PreferencesWindow::SelectModule(const std::string& path)
+{
+    PreferencesManager* manager = PreferencesManager::Get();
+    if (manager != nullptr)
+    {
+        PreferencesModule* module = manager->FindModule(path);
+        if (module != nullptr)
+        {
+            mSelectedModule = module;
+        }
+    }
+}
+
 #endif

@@ -24,6 +24,7 @@ SOURCES		:=	Source \
 				Source/Engine/Nodes/3D \
 				Source/Engine/Nodes/Widgets \
 				Source/Engine/Assets \
+				Source/Plugins \
 				Source/System \
 				Source/System/Dolphin \
 				Source/Graphics \
@@ -39,7 +40,7 @@ SOURCES		:=	Source \
 				../External/Vorbis
 #DATA		:=	data
 #TEXTURES	:=	textures 
-INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis 
+INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua
 OUTPUT_DIR	:=	$(CURDIR)/Build/GCN
 BULLET_DIR	:=	$(CURDIR)/../External/Bullet
 

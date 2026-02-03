@@ -25,6 +25,7 @@
 #include "Graphics/Graphics.h"
 #include "Input/Input.h"
 #include "Audio/Audio.h"
+#include "Plugins/RuntimePluginManager.h"
 
 #if PLATFORM_WINDOWS
 // I think this is needed for the WinMain parameters
@@ -455,6 +456,21 @@ bool Initialize()
     // Because we need to register all of the classes by their constructors.
     ForceLinkage();
 
+    // Initialize runtime plugin manager (for both editor and game builds)
+    // This handles plugins compiled directly into the executable
+    LogError("[ENG] RPM start");
+    RuntimePluginManager::Create();
+    LogError("[ENG] RPM created");
+    if (RuntimePluginManager::Get())
+    {
+        RuntimePluginManager::Get()->Initialize();
+        LogError("[ENG] RPM init done");
+    }
+    else
+    {
+        LogError("[ENG] RPM is NULL!");
+    }
+
 #if !EDITOR
     Scene* defaultScene = nullptr;
 
@@ -597,6 +613,12 @@ bool Update()
         sWorlds[i]->Update(gameDeltaTime);
     }
 
+    // Tick all runtime plugins
+    if (RuntimePluginManager::Get())
+    {
+        RuntimePluginManager::Get()->TickAllPlugins(gameDeltaTime);
+    }
+
     NetworkManager::Get()->PostTickUpdate(realDeltaTime);
 
 #if EDITOR
@@ -639,6 +661,9 @@ void Shutdown()
     }
 
     sWorlds.clear();
+
+    // Shutdown runtime plugins before Lua closes
+    RuntimePluginManager::Destroy();
 
 #if LUA_ENABLED
     lua_close(sEngineState.mLua);
@@ -737,8 +762,6 @@ void LoadProject(const std::string& path, bool discoverAssets)
             sEngineState.mProjectPath = "";
             sEngineState.mProjectDirectory = "";
         }
-
-        ScriptUtils::UnloadAllScriptFiles();
     }
 #endif
 

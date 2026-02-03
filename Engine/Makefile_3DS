@@ -39,6 +39,7 @@ SOURCES		:=	Source \
 				Source/Engine/Nodes/3D \
 				Source/Engine/Nodes/Widgets \
 				Source/Engine/Assets \
+				Source/Plugins \
 				Source/System \
 				Source/System/3DS \
 				Source/Graphics \
@@ -54,7 +55,7 @@ SOURCES		:=	Source \
 				../External/Vorbis \
 				Shaders/PICA200
 DATA		:=	Data
-INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis 
+INCLUDES	:=	Source Source/Engine ../External ../External/Bullet ../External/Vorbis ../External/Lua
 GRAPHICS	:=	Graphics
 GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs

@@ -114,6 +114,30 @@
             "problemMatcher": [],
             "group": "build",
             "detail": "Build Linux Editor using Docker and output to dist/Octave"
+        },
+        {
+            "type": "shell",
+            "label": "Publish Docker Image - Linux",
+            "command": "docker build -f Docker/Dockerfile -t $OCTAVE_DOCKER_USER/octavegameengine-linux:latest . && docker push $OCTAVE_DOCKER_USER/octavegameengine-linux:latest",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build",
+            "detail": "Publish Linux Docker Image to Docker Hub as latest tag"
+        },
+        {
+            "type": "shell",
+            "label": "Publish Dev Do1cker Image - Linux",
+            "command": "docker build -f Docker/Dockerfile -t $OCTAVE_DOCKER_USER/octavegameengine-linux:dev . && docker push $OCTAVE_DOCKER_USER/octavegameengine-linux:dev",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [],
+            "group": "build",
+            "detail": "Publish Dev Linux Docker Image to Docker Hub as dev tag"
         }
     ],
     "version": "2.0.0"

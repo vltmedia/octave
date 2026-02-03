@@ -12,6 +12,7 @@
 
 #include "Engine.h"
 #include "World.h"
+#include "Clock.h"
 #include "Renderer.h"
 #include "Log.h"
 
@@ -26,6 +27,11 @@
 #include "ActionManager.h"
 #include "InputManager.h"
 #include "Preferences/PreferencesManager.h"
+#include "ProjectSelect/TemplateManager.h"
+#include "ProjectSelect/ProjectSelectWindow.h"
+#include "Addons/AddonManager.h"
+#include "Addons/NativeAddonManager.h"
+#include "EditorUIHookManager.h"
 #include "Grid.h"
 #include "Assets/StaticMesh.h"
 #include "Assets/Font.h"
@@ -102,6 +108,16 @@ void EditorMain(int32_t argc, char** argv)
     ActionManager::Create();
     InputManager::Create();
     PreferencesManager::Create();
+    TemplateManager::Create();
+    AddonManager::Create();
+    EditorUIHookManager::Create();
+    NativeAddonManager::Create();
+
+    // Connect EditorUIHooks to NativeAddonManager's engine API
+    if (NativeAddonManager::Get() && EditorUIHookManager::Get())
+    {
+        NativeAddonManager::Get()->GetEngineAPI()->editorUI = EditorUIHookManager::Get()->GetHooks();
+    }
 
     InitializeGrid();
 
@@ -124,6 +140,12 @@ void EditorMain(int32_t argc, char** argv)
         GetWorld(0)->SpawnNode<TestSpinner>();
     }
 
+    // Show Project Select window if no project is loaded
+    if (GetEngineState()->mProjectPath.empty())
+    {
+        GetProjectSelectWindow()->Open();
+    }
+
     Renderer::Get()->EnableConsole(true);
     Renderer::Get()->EnableStatsOverlay(false);
 
@@ -142,6 +164,21 @@ void EditorMain(int32_t argc, char** argv)
         }
 
         ret = Update();
+
+        // Tick native addon plugins
+        if (NativeAddonManager::Get() != nullptr)
+        {
+            float deltaTime = GetAppClock()->DeltaTime();
+
+            // TickEditor runs every frame in editor (regardless of play state)
+            NativeAddonManager::Get()->TickEditorAllPlugins(deltaTime);
+
+            // Tick only runs during gameplay (Play In Editor)
+            if (playInEditor)
+            {
+                NativeAddonManager::Get()->TickAllPlugins(deltaTime);
+            }
+        }
 
         if (GetEditorState()->mEndPieAtEndOfFrame)
         {
@@ -171,6 +208,10 @@ void EditorMain(int32_t argc, char** argv)
         }
     }
 
+    NativeAddonManager::Destroy();
+    EditorUIHookManager::Destroy();
+    AddonManager::Destroy();
+    TemplateManager::Destroy();
     PreferencesManager::Destroy();
     GetEditorState()->Shutdown();
     Shutdown();

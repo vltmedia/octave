@@ -22,7 +22,7 @@ void NET_Initialize()
 {
     struct in_addr localIp, netMask, gateway;
     #if PLATFORM_WII
-    int32_t result = if_configex(&localIp, &netMask, &gateway, true, 1);
+    int32_t result = if_configex(&localIp, &netMask, &gateway, true);
     #else
     int32_t result = if_configex(&localIp, &netMask, &gateway, true);
 	#endif

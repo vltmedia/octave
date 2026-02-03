@@ -220,8 +220,7 @@ void Viewport3D::HandleDefaultControls()
 
             if (!controlDown && !altDown && !spaceDown && IsKeyJustDown(KEY_G))
             {
-                GetEditorState()->SetControlMode(ControlMode::Translate);
-                SavePreTransforms();
+                GetEditorState()->mGizmoOperation = ImGuizmo::TRANSLATE;
             }
             if (!controlDown && !altDown && spaceDown && IsKeyJustDown(KEY_G))
             {
@@ -232,6 +231,16 @@ void Viewport3D::HandleDefaultControls()
                 GetEditorState()->mGizmoOperation = ImGuizmo::ROTATE;
             }
             if (!controlDown && !altDown && spaceDown && IsKeyJustDown(KEY_S))
+            {
+                GetEditorState()->mGizmoOperation = ImGuizmo::SCALE;
+            }
+
+            if (!controlDown && !altDown && !spaceDown && IsKeyJustDown(KEY_R))
+            {
+                GetEditorState()->mGizmoOperation = ImGuizmo::ROTATE;
+            }
+
+            if (!controlDown && !altDown && !spaceDown && IsKeyJustDown(KEY_S))
             {
                 GetEditorState()->mGizmoOperation = ImGuizmo::SCALE;
             }

@@ -1420,14 +1420,14 @@ void AssetManager::GatherFontFiles(const std::string& dir, std::vector<std::stri
 AssetStub* AssetManager::FindDefaultScene() {
     AssetStub* defaultScene = nullptr;
 
-    std::string defaultScenePath = FindDefaultScenePath();
+	std::string defaultScenePath = FindDefaultScenePath();
 
     if (defaultScenePath != "") {
-        // Get the file name from the path
-        std::string sceneName = SYS_GetFileName(defaultScenePath);
+		// Get the file name from the path
+		std::string sceneName = SYS_GetFileName(defaultScenePath);
         defaultScene = GetAssetStub(sceneName);
 
-    }
+	}
     return defaultScene;
 }
 std::string AssetManager::FindDefaultScenePath() {
@@ -1534,6 +1534,284 @@ std::vector<std::string> AssetManager::GetAvailableScriptFiles()
         if (scriptFiles[i].substr(0, prefix.length()) == prefix)
         {
             scriptFiles[i] = scriptFiles[i].substr(prefix.length());
+        }
+    }
+
+    return scriptFiles;
+}
+
+
+void AssetManager::GatherScriptFiles(const std::string& dir, std::vector<std::string>& outFiles)
+{
+    // Recursively iterate through the Script directory and find .lua files.
+    std::function<void(std::string)> searchDirectory = [&](std::string dirPath)
+        {
+            std::vector<std::string> subDirectories;
+            DirEntry dirEntry = { };
+
+            SYS_OpenDirectory(dirPath, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (dirEntry.mDirectory)
+                {
+                    // Ignore this directory and parent directory.
+                    if (dirEntry.mFilename[0] != '.')
+                    {
+                        subDirectories.push_back(dirEntry.mFilename);
+                    }
+                }
+                else
+                {
+                    const char* extension = strrchr(dirEntry.mFilename, '.');
+
+                    if (strcmp(dirEntry.mFilename, "LuaPanda.lua") != 0 &&
+                        extension != nullptr &&
+                        strcmp(extension, ".lua") == 0)
+                    {
+                        std::string path = dirPath + dirEntry.mFilename;
+                        outFiles.push_back(path);
+                    }
+                }
+
+                SYS_IterateDirectory(dirEntry);
+            }
+
+            SYS_CloseDirectory(dirEntry);
+
+            // Discover files of subdirectories.
+            for (uint32_t i = 0; i < subDirectories.size(); ++i)
+            {
+                std::string subDirPath = dirPath + subDirectories[i] + "/";
+                searchDirectory(subDirPath);
+            }
+        };
+
+    searchDirectory(dir);
+}
+
+
+void AssetManager::GatherFontFiles(const std::string& dir, std::vector<std::string>& outFiles)
+{
+    // Recursively iterate through the Assets/Fonts directory and find .ttf files.
+    std::function<void(std::string)> searchDirectory = [&](std::string dirPath)
+        {
+            std::vector<std::string> subDirectories;
+            DirEntry dirEntry = { };
+
+            SYS_OpenDirectory(dirPath, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (dirEntry.mDirectory)
+                {
+                    // Ignore this directory and parent directory.
+                    if (dirEntry.mFilename[0] != '.')
+                    {
+                        subDirectories.push_back(dirEntry.mFilename);
+                    }
+                }
+                else
+                {
+                    const char* extension = strrchr(dirEntry.mFilename, '.');
+                    if (extension != nullptr && strcmp(extension, ".ttf") == 0)
+                    {
+                        std::string path = dirPath + dirEntry.mFilename;
+                        outFiles.push_back(path);
+                    }
+                }
+                
+
+                SYS_IterateDirectory(dirEntry);
+            }
+
+            SYS_CloseDirectory(dirEntry);
+
+            // Discover files of subdirectories.
+            for (uint32_t i = 0; i < subDirectories.size(); ++i)
+            {
+                std::string subDirPath = dirPath + subDirectories[i] + "/";
+                searchDirectory(subDirPath);
+            }
+        };
+
+    searchDirectory(dir);
+}
+
+AssetStub* AssetManager::FindDefaultScene() {
+    AssetStub* defaultScene = nullptr;
+
+    std::string defaultScenePath = FindDefaultScenePath();
+
+    if (defaultScenePath != "") {
+        // Get the file name from the path
+        std::string sceneName = SYS_GetFileName(defaultScenePath);
+        defaultScene = GetAssetStub(sceneName);
+
+    }
+    return defaultScene;
+}
+std::string AssetManager::FindDefaultScenePath() {
+    std::string defaultScenePath = "";
+    AssetDir* projectDir = FindProjectDirectory();
+
+    if (projectDir == nullptr)
+    {
+        return defaultScenePath;
+    }
+
+    auto getStubName = [](AssetStub* stub) -> std::string
+    {
+        if (stub == nullptr)
+        {
+            return "";
+        }
+
+#if EDITOR
+        if (!stub->mName.empty())
+        {
+            return stub->mName;
+        }
+#endif
+
+        if (!stub->mPath.empty())
+        {
+            return Asset::GetNameFromPath(stub->mPath);
+        }
+
+        if (stub->mAsset != nullptr)
+        {
+            return stub->mAsset->GetName();
+        }
+
+        return "";
+    };
+
+    std::function<std::string(AssetDir*)> searchDir = [&](AssetDir* dir) -> std::string
+    {
+        if (dir == nullptr)
+        {
+            return std::string();
+        }
+
+        for (uint32_t i = 0; i < dir->mAssetStubs.size(); ++i)
+        {
+            AssetStub* stub = dir->mAssetStubs[i];
+            const std::string stubName = getStubName(stub);
+
+            if (stubName == "SC_Default" || stubName == "SC_Main")
+            {
+                return stub->mPath;
+            }
+        }
+
+        for (uint32_t i = 0; i < dir->mChildDirs.size(); ++i)
+        {
+            std::string found = searchDir(dir->mChildDirs[i]);
+            if (!found.empty())
+            {
+                return found;
+            }
+        }
+
+        return std::string();
+    };
+
+    return searchDir(projectDir);
+}
+
+
+std::vector<std::string> AssetManager::GetAvailableFontFiles()
+{
+    std::vector<std::string> fontFiles;
+
+    GatherFontFiles("Engine/Assets/Fonts/", fontFiles);
+
+    // Remove "Engine/Scripts/" from the front of each path
+    const std::string prefix = "Engine/Assets/Fonts/";
+    for (uint32_t i = 0; i < fontFiles.size(); ++i)
+    {
+        if (fontFiles[i].substr(0, prefix.length()) == prefix)
+        {
+            fontFiles[i] = fontFiles[i].substr(prefix.length());
+        }
+    }
+
+    return fontFiles;
+}
+
+
+
+std::vector<std::string> AssetManager::GetAvailableScriptFiles()
+{
+    std::vector<std::string> scriptFiles;
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+
+    // 1. Gather engine scripts
+    GatherScriptFiles("Engine/Scripts/", scriptFiles);
+
+    // Remove "Engine/Scripts/" prefix
+    const std::string enginePrefix = "Engine/Scripts/";
+    for (uint32_t i = 0; i < scriptFiles.size(); ++i)
+    {
+        if (scriptFiles[i].substr(0, enginePrefix.length()) == enginePrefix)
+        {
+            scriptFiles[i] = scriptFiles[i].substr(enginePrefix.length());
+        }
+    }
+
+    // 2. Gather project scripts
+    if (!projectDir.empty())
+    {
+        std::string projectScriptsDir = projectDir + "Scripts/";
+        size_t startIdx = scriptFiles.size();
+        GatherScriptFiles(projectScriptsDir, scriptFiles);
+
+        // Remove project scripts prefix
+        for (size_t i = startIdx; i < scriptFiles.size(); ++i)
+        {
+            if (scriptFiles[i].substr(0, projectScriptsDir.length()) == projectScriptsDir)
+            {
+                scriptFiles[i] = scriptFiles[i].substr(projectScriptsDir.length());
+            }
+        }
+
+        // 3. Gather scripts from Packages
+        std::string packagesDir = projectDir + "Packages/";
+        if (DoesDirExist(packagesDir.c_str()))
+        {
+            DirEntry dirEntry;
+            SYS_OpenDirectory(packagesDir, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (dirEntry.mDirectory &&
+                    strcmp(dirEntry.mFilename, ".") != 0 &&
+                    strcmp(dirEntry.mFilename, "..") != 0)
+                {
+                    std::string packageName = dirEntry.mFilename;
+                    std::string packageScriptsDir = packagesDir + packageName + "/Scripts/";
+
+                    if (DoesDirExist(packageScriptsDir.c_str()))
+                    {
+                        size_t pkgStartIdx = scriptFiles.size();
+                        GatherScriptFiles(packageScriptsDir, scriptFiles);
+
+                        // Prefix package scripts with "Packages/{packageName}/"
+                        for (size_t i = pkgStartIdx; i < scriptFiles.size(); ++i)
+                        {
+                            if (scriptFiles[i].substr(0, packageScriptsDir.length()) == packageScriptsDir)
+                            {
+                                scriptFiles[i] = "Packages/" + packageName + "/" +
+                                    scriptFiles[i].substr(packageScriptsDir.length());
+                            }
+                        }
+                    }
+                }
+
+                SYS_IterateDirectory(dirEntry);
+            }
+            SYS_CloseDirectory(dirEntry);
         }
     }
 

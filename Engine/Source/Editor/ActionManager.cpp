@@ -53,6 +53,9 @@
 #include "Nodes/3D/Camera3d.h"
 
 #include "System/System.h"
+#include "Packaging/PackagingSettings.h"
+#include "Addons/NativeAddonManager.h"
+#include "Addons/AddonManager.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -137,6 +140,233 @@ void ReplaceAllStrings(std::string& str, const std::string& from, const std::str
         str.replace(startPos, from.length(), to);
         startPos += to.length();
     }
+}
+
+static void InjectNativeAddonSources(const std::string& makefilePath, const std::string& buildProjDir)
+{
+    LogWarning("[INJ] Start inject");
+    NativeAddonManager* nam = NativeAddonManager::Get();
+    if (nam == nullptr)
+    {
+        LogWarning("[INJ] NAM is null!");
+        return;
+    }
+
+    // Discover native addons if not already done
+    nam->DiscoverNativeAddons();
+
+    // Get addons with engine target (not editor-only)
+    std::vector<NativeAddonState> engineAddons = nam->GetEngineAddons();
+    LogWarning("[INJ] Engine addons: %zu", engineAddons.size());
+
+    if (engineAddons.empty())
+    {
+        LogWarning("[INJ] No addons to inject");
+        return;
+    }
+
+    LogWarning("[INJ] Injecting %zu addon(s)", engineAddons.size());
+
+    // Read existing makefile
+    Stream stream;
+    if (!stream.ReadFile(makefilePath.c_str(), false))
+    {
+        LogError("Failed to read makefile for native addon injection: %s", makefilePath.c_str());
+        return;
+    }
+
+    std::string makefileContent(stream.GetData(), stream.GetSize());
+
+    // Build source directories list for Makefile-based builds
+    std::string additionalSourceDirs;
+    std::vector<std::string> sourceDirs;
+
+    for (const NativeAddonState& addon : engineAddons)
+    {
+        std::string sourceDir = addon.mSourcePath + addon.mNativeMetadata.mSourceDir + "/";
+        LogWarning("[INJ] Addon: %s", addon.mAddonId.c_str());
+        LogWarning("[INJ] SrcDir: %s", sourceDir.c_str());
+
+        if (!DoesDirExist(sourceDir.c_str()))
+        {
+            LogWarning("[INJ] Dir NOT found!");
+            continue;
+        }
+        LogWarning("[INJ] Dir exists");
+
+        // Gather source directories (for Makefile-based builds that use directory wildcards)
+        std::function<void(const std::string&)> gatherSourceDirs;
+        gatherSourceDirs = [&](const std::string& dir)
+        {
+            // Check if this directory has any source files
+            bool hasSourceFiles = false;
+            DirEntry dirEntry;
+            SYS_OpenDirectory(dir, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (strcmp(dirEntry.mFilename, ".") != 0 && strcmp(dirEntry.mFilename, "..") != 0)
+                {
+                    std::string path = dir + dirEntry.mFilename;
+
+                    if (dirEntry.mDirectory)
+                    {
+                        gatherSourceDirs(path + "/");
+                    }
+                    else
+                    {
+                        std::string filename = dirEntry.mFilename;
+                        size_t dotPos = filename.find_last_of('.');
+                        if (dotPos != std::string::npos)
+                        {
+                            std::string ext = filename.substr(dotPos);
+                            if (ext == ".cpp" || ext == ".c")
+                            {
+                                hasSourceFiles = true;
+                                LogDebug("  Found source: %s", path.c_str());
+                            }
+                        }
+                    }
+                }
+
+                SYS_IterateDirectory(dirEntry);
+            }
+            SYS_CloseDirectory(dirEntry);
+
+            // Add this directory if it contains source files
+            if (hasSourceFiles)
+            {
+                sourceDirs.push_back(dir);
+            }
+        };
+
+        gatherSourceDirs(sourceDir);
+        LogDebug("Injected native addon: %s", addon.mAddonId.c_str());
+    }
+
+    // Build the source directories string for Makefile injection
+    LogWarning("[INJ] Total dirs: %zu", sourceDirs.size());
+    for (const std::string& dir : sourceDirs)
+    {
+        LogWarning("[INJ] +Dir: %s", dir.c_str());
+
+        // Convert Windows backslashes to forward slashes for Make compatibility
+        std::string normalizedDir = dir;
+        std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
+
+        additionalSourceDirs += " \\\n\t\t\t\t" + normalizedDir;
+    }
+
+    // Inject into makefile
+    // Look for common patterns in makefiles to inject our additions
+    // This is a simple approach - we append to INCLUDES and SOURCES variables
+
+    if (!sourceDirs.empty())
+    {
+        // Build include directories string (just directories, no -I flags - Makefile adds those)
+        std::string additionalIncludeDirs;
+        for (const std::string& dir : sourceDirs)
+        {
+            // Convert Windows backslashes to forward slashes for Make compatibility
+            std::string normalizedDir = dir;
+            std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
+            additionalIncludeDirs += " " + normalizedDir;
+        }
+
+        // Try to find INCLUDES := (the actual variable, not comments)
+        size_t includesPos = makefileContent.find("INCLUDES\t:=");
+        if (includesPos == std::string::npos)
+        {
+            includesPos = makefileContent.find("INCLUDES :=");
+        }
+        if (includesPos == std::string::npos)
+        {
+            includesPos = makefileContent.find("INCLUDES:=");
+        }
+
+        if (includesPos != std::string::npos)
+        {
+            // Find the end of this line and append our includes
+            size_t lineEnd = makefileContent.find('\n', includesPos);
+            if (lineEnd != std::string::npos)
+            {
+                makefileContent.insert(lineEnd, additionalIncludeDirs);
+            }
+        }
+        else
+        {
+            // Try CXXFLAGS as fallback (needs -I flags)
+            size_t cxxflagsPos = makefileContent.find("CXXFLAGS");
+            if (cxxflagsPos != std::string::npos)
+            {
+                std::string includesWithFlags;
+                for (const std::string& dir : sourceDirs)
+                {
+                    // Convert Windows backslashes to forward slashes for Make compatibility
+                    std::string normalizedDir = dir;
+                    std::replace(normalizedDir.begin(), normalizedDir.end(), '\\', '/');
+                    includesWithFlags += " -I" + normalizedDir;
+                }
+                size_t lineEnd = makefileContent.find('\n', cxxflagsPos);
+                if (lineEnd != std::string::npos)
+                {
+                    makefileContent.insert(lineEnd, includesWithFlags);
+                }
+            }
+        }
+    }
+
+    if (!additionalSourceDirs.empty())
+    {
+        // Try to find SOURCES := (the actual variable, not comments)
+        size_t sourcesPos = makefileContent.find("SOURCES\t\t:=");
+        if (sourcesPos == std::string::npos)
+        {
+            sourcesPos = makefileContent.find("SOURCES :=");
+        }
+        if (sourcesPos == std::string::npos)
+        {
+            sourcesPos = makefileContent.find("SOURCES:=");
+        }
+
+        if (sourcesPos != std::string::npos)
+        {
+            // Find the end of the SOURCES definition (may span multiple lines with backslash)
+            size_t pos = sourcesPos;
+            size_t lineEnd = pos;
+            while (pos < makefileContent.size())
+            {
+                lineEnd = makefileContent.find('\n', pos);
+                if (lineEnd == std::string::npos)
+                {
+                    lineEnd = makefileContent.size();
+                    break;
+                }
+                // Check if line continues (ends with backslash)
+                if (lineEnd > 0 && makefileContent[lineEnd - 1] == '\\')
+                {
+                    pos = lineEnd + 1;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            // Insert after the SOURCES definition
+            makefileContent.insert(lineEnd, additionalSourceDirs);
+        }
+        else
+        {
+            // Add a new ADDON_SOURCES line at the beginning
+            makefileContent = "ADDON_SOURCES :=" + additionalSourceDirs + "\n" + makefileContent;
+        }
+    }
+
+    // Write modified makefile back
+    Stream outStream(makefileContent.c_str(), (uint32_t)makefileContent.size());
+    outStream.WriteFile(makefilePath.c_str());
+
+    LogDebug("Native addon sources injected into makefile.");
 }
 
 void ReplaceStringInFile(const std::string& file, const std::string& srcString, const std::string& dstString)
@@ -320,13 +550,61 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     {
         GatherScriptFiles((octaveDirectory + "Engine/Scripts/").c_str(), scriptFiles);
         GatherScriptFiles((projectDir + "/Scripts/").c_str(), scriptFiles);
+
+        // Also gather scripts from local Packages
+        std::string packagesDir = projectDir + "Packages/";
+        if (DoesDirExist(packagesDir.c_str()))
+        {
+            DirEntry dirEntry;
+            SYS_OpenDirectory(packagesDir, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (dirEntry.mDirectory &&
+                    strcmp(dirEntry.mFilename, ".") != 0 &&
+                    strcmp(dirEntry.mFilename, "..") != 0)
+                {
+                    std::string packageScriptsDir = packagesDir + dirEntry.mFilename + "/Scripts/";
+                    if (DoesDirExist(packageScriptsDir.c_str()))
+                    {
+                        GatherScriptFiles(packageScriptsDir.c_str(), scriptFiles);
+                    }
+                }
+                SYS_IterateDirectory(dirEntry);
+            }
+            SYS_CloseDirectory(dirEntry);
+        }
     }
     else
     {
         SYS_CopyDirectory((octaveDirectory + "Engine/Scripts/").c_str(), (packagedDir + "Engine/Scripts/").c_str());
         SYS_CopyDirectory((projectDir + "Scripts/").c_str(), (packagedDir + projectName + "/Scripts/").c_str());
-        //SYS_Exec(std::string("cp -R Engine/Scripts " + packagedDir + "Engine/Scripts").c_str());
-        //SYS_Exec(std::string("cp -R " + projectDir + "Scripts " + packagedDir + projectName + "/Scripts").c_str());
+
+        // Also copy scripts from local Packages
+        std::string packagesDir = projectDir + "Packages/";
+        if (DoesDirExist(packagesDir.c_str()))
+        {
+            DirEntry dirEntry;
+            SYS_OpenDirectory(packagesDir, dirEntry);
+
+            while (dirEntry.mValid)
+            {
+                if (dirEntry.mDirectory &&
+                    strcmp(dirEntry.mFilename, ".") != 0 &&
+                    strcmp(dirEntry.mFilename, "..") != 0)
+                {
+                    std::string packageName = dirEntry.mFilename;
+                    std::string packageScriptsDir = packagesDir + packageName + "/Scripts/";
+                    if (DoesDirExist(packageScriptsDir.c_str()))
+                    {
+                        std::string destDir = packagedDir + projectName + "/Packages/" + packageName + "/Scripts/";
+                        SYS_CopyDirectory(packageScriptsDir.c_str(), destDir.c_str());
+                    }
+                }
+                SYS_IterateDirectory(dirEntry);
+            }
+            SYS_CloseDirectory(dirEntry);
+        }
 
         if (platform != Platform::Windows && platform != Platform::Linux)
         {
@@ -417,9 +695,10 @@ void ActionManager::BuildData(Platform platform, bool embedded)
 
     bool useSteam = GetEngineConfig()->mPackageForSteam;
 
+    LogWarning("[BUILD] needCompile=%d plat=%d", needCompile ? 1 : 0, (int)platform);
     if (needCompile)
     {
-        LogDebug("Compiling game executable.");
+        LogWarning("[BUILD] Compiling...");
 
         if (platform == Platform::Windows)
         {
@@ -477,14 +756,15 @@ void ActionManager::BuildData(Platform platform, bool embedded)
         }
         else
         {
+            LogWarning("[BUILD] Makefile build path");
             std::string makefilePath = "Makefile_";
 
             switch (platform)
             {
-            case Platform::Linux: makefilePath += "Linux_Game"; break;
-            case Platform::GameCube: makefilePath += "GCN"; break;
-            case Platform::Wii: makefilePath += "Wii"; break;
-            case Platform::N3DS: makefilePath += "3DS"; break;
+            case Platform::Linux: makefilePath += "Linux_Game"; LogWarning("[BUILD] Linux"); break;
+            case Platform::GameCube: makefilePath += "GCN"; LogWarning("[BUILD] GCN"); break;
+            case Platform::Wii: makefilePath += "Wii"; LogWarning("[BUILD] Wii"); break;
+            case Platform::N3DS: makefilePath += "3DS"; LogWarning("[BUILD] 3DS"); break;
             default: OCT_ASSERT(0); break;
             }
 
@@ -537,20 +817,44 @@ void ActionManager::BuildData(Platform platform, bool embedded)
 
             SYS_CreateDirectory((buildProjDir + "Generated").c_str());
 
+			// Copy over Generated files, sometimes they may have been modified or deleted.
+			SYS_CopyFile(embeddedHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.h").c_str());
+			SYS_CopyFile(embeddedSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.cpp").c_str());
+			SYS_CopyFile(scriptHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.h").c_str());
+			SYS_CopyFile(scriptSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.cpp").c_str());
+
+
+
+
+            // Copy Source folder from Standalone if it doesn't exist in project
+            std::string projSourceDir = buildProjDir + "Source";
+            if (!DoesDirExist(projSourceDir.c_str()))
+            {
+                std::string standaloneSourceDir = "Standalone/Source";
+                if (DoesDirExist(standaloneSourceDir.c_str()))
+                {
+                    LogDebug("Source folder not found in project, copying from Standalone");
+                    SYS_CopyDirectory(standaloneSourceDir.c_str(), projSourceDir.c_str());
+                }
+            }
+
+            SYS_CreateDirectory((buildProjDir + "Generated").c_str());
+
             // Copy over Generated files, sometimes they may have been modified or deleted.
             SYS_CopyFile(embeddedHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.h").c_str());
             SYS_CopyFile(embeddedSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.cpp").c_str());
             SYS_CopyFile(scriptHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.h").c_str());
             SYS_CopyFile(scriptSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.cpp").c_str());
 
-
-
+            // Inject native addon sources into the build (for addons with target: engine)
+            InjectNativeAddonSources(tmpMakefile, buildProjDir);
 
             std::string makeCmd = std::string("make -C ") + (buildProjDir) + " -f Makefile_TEMP -j 12";
             SYS_Exec(makeCmd.c_str());
 
-            // Delete the temp makefile
+            // Delete the temp makefile (disabled for debugging)
             SYS_RemoveFile(tmpMakefile.c_str());
+            // LogWarning("[BUILD] Kept temp makefile: %s", tmpMakefile.c_str());
             //SYS_Exec(std::string("rm " + tmpMakefile).c_str());
 
             if (platform == Platform::Linux)
@@ -1637,6 +1941,13 @@ void ActionManager::OpenProject(const char* path)
 
     if (pathStr != "")
     {
+        // Save and destroy previous PackagingSettings before loading new project
+        if (PackagingSettings::Get() != nullptr)
+        {
+            PackagingSettings::Get()->SaveSettings();
+            PackagingSettings::Destroy();
+        }
+
         LoadProject(pathStr);
 
         // Handle new project directory
@@ -1644,8 +1955,18 @@ void ActionManager::OpenProject(const char* path)
         GetEditorState()->SetAssetDirectory(AssetManager::Get()->FindProjectDirectory(), true);
         GetEditorState()->SetSelectedAssetStub(nullptr);
 
+        // Initialize PackagingSettings for the new project
+        PackagingSettings::Create();
+        PackagingSettings::Get()->LoadSettings();
+
         // Check if project needs upgrade to new UUID format
         CheckProjectNeedsUpgrade();
+        NativeAddonManager* nam = NativeAddonManager::Get();
+        if (nam != nullptr)
+        {
+            nam->ReloadAllNativeAddons();
+            LogDebug("Native addons reloaded.");
+        }
     }
 }
 
@@ -1774,7 +2095,7 @@ static void HandleRunScriptCallback(const std::vector<std::string>& filePaths)
         // Don't use ScriptUtils::RunScript(). Allow script to exist outside of the project.
         if (luaL_dofile(L, filePaths[i].c_str()))
         {
-            LogError("Lua Error: %s\n", lua_tostring(L, -1));
+            LogError("3Lua Error: %s\n", lua_tostring(L, -1));
         }
     }
 }
