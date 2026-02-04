@@ -824,28 +824,6 @@ void ActionManager::BuildData(Platform platform, bool embedded)
 			SYS_CopyFile(scriptSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.cpp").c_str());
 
 
-
-
-            // Copy Source folder from Standalone if it doesn't exist in project
-            std::string projSourceDir = buildProjDir + "Source";
-            if (!DoesDirExist(projSourceDir.c_str()))
-            {
-                std::string standaloneSourceDir = "Standalone/Source";
-                if (DoesDirExist(standaloneSourceDir.c_str()))
-                {
-                    LogDebug("Source folder not found in project, copying from Standalone");
-                    SYS_CopyDirectory(standaloneSourceDir.c_str(), projSourceDir.c_str());
-                }
-            }
-
-            SYS_CreateDirectory((buildProjDir + "Generated").c_str());
-
-            // Copy over Generated files, sometimes they may have been modified or deleted.
-            SYS_CopyFile(embeddedHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.h").c_str());
-            SYS_CopyFile(embeddedSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedAssets.cpp").c_str());
-            SYS_CopyFile(scriptHeaderPath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.h").c_str());
-            SYS_CopyFile(scriptSourcePath.c_str(), (buildProjDir + "Generated/EmbeddedScripts.cpp").c_str());
-
             // Inject native addon sources into the build (for addons with target: engine)
             InjectNativeAddonSources(tmpMakefile, buildProjDir);
 
