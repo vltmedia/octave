@@ -72,11 +72,16 @@ RUN apt-get update && \
     apt-get install -y devkitpro-pacman && \
     rm -rf /var/lib/apt/lists/*
 
+# Install curl-impersonate to bypass Cloudflare (mimics Chrome TLS fingerprint)
+RUN apt-get update && apt-get install -y libnss3 nss-plugin-pem ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz \
+    | tar -xz -C /usr/local/bin && \
+    ldconfig /usr/local/bin
+
 # Install console development libraries
 # Create /etc/mtab symlink needed by pacman in Docker
-# Add libogc2 repo FIRST to avoid conflicts with standard devkitpro packages
 RUN ln -sf /proc/self/mounts /etc/mtab && \
-    wget -O - https://packages.extremscorner.org/devkitpro.gpg | dkp-pacman-key --add - && \
+    /usr/local/bin/curl_chrome116 -sS https://packages.extremscorner.org/devkitpro.gpg | dkp-pacman-key --add - && \
     dkp-pacman-key --lsign-key C8A2759C315CFBC3429CC2E422B803BA8AA3D7CE && \
     echo '[extremscorner-devkitpro]\nServer = https://packages.extremscorner.org/devkitpro/linux/$arch' >> /opt/devkitpro/pacman/etc/pacman.conf && \
     dkp-pacman -Syyu --noconfirm 3ds-dev gamecube-dev wii-dev && \
