@@ -129,7 +129,7 @@
         },
         {
             "type": "shell",
-            "label": "Publish Dev Do1cker Image - Linux",
+            "label": "Publish Dev Docker Image - Linux",
             "command": "docker build -f Docker/Dockerfile -t $OCTAVE_DOCKER_USER/octavegameengine-linux:dev . && docker push $OCTAVE_DOCKER_USER/octavegameengine-linux:dev",
             "args": [],
             "options": {
