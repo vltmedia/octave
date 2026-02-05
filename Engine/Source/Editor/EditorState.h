@@ -144,6 +144,8 @@ struct EditorState
     std::string mPendingSceneImportPath = "";
     bool mShutdownUnsavedCheck = false;
     bool mDevMode = false;
+    bool mShowBottomPane = true;
+    float mBottomPaneHeight = 180.0f;
     bool mEndPieAtEndOfFrame = false;
     bool mShowProjectUpgradeModal = false;
     bool mProjectUpgradeInProgress = false;

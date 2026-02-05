@@ -129,6 +129,9 @@
     <Filter Include="Source Files\Editor\Preferences">
       <UniqueIdentifier>{af0b10d1-e6e6-428e-9f9d-f8a6d537ff48}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Editor\DebugLog">
+      <UniqueIdentifier>{d3a5c7b2-1f4e-4a8b-9c6d-e2f0b8a1d5c3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Graphics\Vulkan\VulkanUtils.cpp">
@@ -583,6 +586,9 @@
     </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\TestSpinner.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\DebugLog\DebugLogWindow.cpp">
+      <Filter>Source Files\Editor\DebugLog</Filter>
     </ClCompile>
     <ClCompile Include="Source\Editor\EditorImgui.cpp">
       <Filter>Source Files\Editor</Filter>
@@ -1382,6 +1388,9 @@
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\3D\TestSpinner.h">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\DebugLog\DebugLogWindow.h">
+      <Filter>Source Files\Editor\DebugLog</Filter>
     </ClInclude>
     <ClInclude Include="Source\Editor\EditorImgui.h">
       <Filter>Source Files\Editor</Filter>

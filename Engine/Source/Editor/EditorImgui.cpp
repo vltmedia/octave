@@ -41,6 +41,9 @@
 #include "Addons/AddonsWindow.h"
 #include "Addons/NativeAddonManager.h"
 #include "EditorUIHookManager.h"
+#include "DebugLog/DebugLogWindow.h"
+#include "Preferences/General/GeneralModule.h"
+#include "Preferences/PreferencesManager.h"
 
 #include <functional>
 #include <algorithm>
@@ -131,6 +134,38 @@ static char sPackageOutputPath[512] = {};
 static std::string sPackageError;
 static std::string sPackageSuccess;
 static std::vector<std::string> sPackageAddonList;
+
+static bool IsBottomPaneVisible()
+{
+    if (!GetEditorState()->mShowBottomPane) return false;
+    PreferencesManager* pm = PreferencesManager::Get();
+    if (pm)
+    {
+        GeneralModule* gm = static_cast<GeneralModule*>(pm->FindModule("General"));
+        if (gm && !gm->GetShowDebugInEditor()) return false;
+    }
+    return true;
+}
+
+static void DrawDebugLogPanel()
+{
+    if (!IsBottomPaneVisible()) return;
+
+    EditorState* es = GetEditorState();
+    const float dispWidth = ImGui::GetIO().DisplaySize.x;
+    const float dispHeight = ImGui::GetIO().DisplaySize.y;
+
+    float panelX = 0.0f;
+    float panelWidth = dispWidth;
+
+    float panelY = dispHeight - es->mBottomPaneHeight;
+
+    // Resize handle
+    es->mBottomPaneHeight = GetDebugLogWindow()->DrawResizeHandle(panelX, panelY, panelWidth, es->mBottomPaneHeight);
+    panelY = dispHeight - es->mBottomPaneHeight;
+
+    GetDebugLogWindow()->Draw(panelX, panelY, panelWidth, es->mBottomPaneHeight);
+}
 
 static void PopulateFileBrowserDirs()
 {
@@ -2630,7 +2665,10 @@ static void DrawScenePanel()
 {
     ActionManager* am = ActionManager::Get();
 
-    const float halfHeight = ImGui::GetIO().DisplaySize.y / 2.0f;
+    float totalHeight = ImGui::GetIO().DisplaySize.y;
+    if (IsBottomPaneVisible())
+        totalHeight -= GetEditorState()->mBottomPaneHeight;
+    const float halfHeight = totalHeight / 2.0f;
 
     ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(ImVec2(kSidePaneWidth, halfHeight));
@@ -3684,7 +3722,10 @@ static void DrawAssetBrowser(bool showFilter, bool interactive)
 
 static void DrawAssetsPanel()
 {
-    const float halfHeight = ImGui::GetIO().DisplaySize.y / 2.0f;
+    float totalHeight = ImGui::GetIO().DisplaySize.y;
+    if (IsBottomPaneVisible())
+        totalHeight -= GetEditorState()->mBottomPaneHeight;
+    const float halfHeight = totalHeight / 2.0f;
 
     ImGui::SetNextWindowPos(ImVec2(0.0f, halfHeight));
     ImGui::SetNextWindowSize(ImVec2(kSidePaneWidth, halfHeight));
@@ -3863,7 +3904,9 @@ static void DrawInstancedMeshExtra(InstancedMesh3D* instMesh)
 static void DrawPropertiesPanel()
 {
     const float dispWidth = ImGui::GetIO().DisplaySize.x;
-    const float dispHeight = ImGui::GetIO().DisplaySize.y;
+    float dispHeight = ImGui::GetIO().DisplaySize.y;
+    if (IsBottomPaneVisible())
+        dispHeight -= GetEditorState()->mBottomPaneHeight;
 
     ImGui::SetNextWindowPos(ImVec2(dispWidth - kSidePaneWidth, 0.0f));
     ImGui::SetNextWindowSize(ImVec2(kSidePaneWidth, dispHeight));
@@ -4586,6 +4629,10 @@ static void DrawViewportPanel()
                 GetPreferencesWindow()->Open();
             }
         }
+
+        ImGui::Separator();
+        if (ImGui::Selectable("Debug Log"))
+            GetEditorState()->mShowBottomPane = !GetEditorState()->mShowBottomPane;
 
             ImGui::EndPopup();
     }
@@ -5602,6 +5649,8 @@ void EditorImguiInit()
 
     // Set unactive window title bg equal to active title.
     colors[ImGuiCol_TitleBg] = colors[ImGuiCol_TitleBgActive];
+
+    RegisterLogCallback(DebugLogWindow::LogCallback);
 }
 
 void EditorImguiDraw()
@@ -5636,6 +5685,7 @@ void EditorImguiDraw()
         }
 
         DrawViewportPanel();
+        DrawDebugLogPanel();
 
         // Draw ImGuizmo gizmos for selected 3D nodes
         DrawImGuizmo();
@@ -5696,6 +5746,8 @@ void EditorImguiPreShutdown()
         return;
     }
 
+    UnregisterLogCallback(DebugLogWindow::LogCallback);
+
     if (sInspectTexId != 0)
     {
         DeviceWaitIdle();
@@ -5730,6 +5782,10 @@ void EditorImguiGetViewport(uint32_t& x, uint32_t& y, uint32_t& width, uint32_t&
         if (GetEditorState()->mShowRightPane)
         {
             iWidth -= int32_t(kSidePaneWidth * scale + 0.5f);
+        }
+        if (IsBottomPaneVisible())
+        {
+            iHeight -= int32_t(GetEditorState()->mBottomPaneHeight * scale + 0.5f);
         }
 
         iWidth = glm::clamp<int32_t>(iWidth, 100, int32_t(ImGui::GetIO().DisplaySize.x + 0.5f));
