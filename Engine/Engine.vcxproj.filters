@@ -752,6 +752,9 @@
     <ClCompile Include="Source\System\SystemUtils.cpp">
       <Filter>Source Files\System</Filter>
     </ClCompile>
+    <ClCompile Include="Source\System\ModuleLoader.cpp">
+      <Filter>Source Files\System</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\NodePath.cpp">
       <Filter>Source Files\Engine</Filter>
     </ClCompile>
@@ -790,6 +793,48 @@
     </ClCompile>
     <ClCompile Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.cpp">
       <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\EditorUIHookManager.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Addons\AddonManager.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Addons\AddonsWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Addons\NativeAddonManager.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\BuildProfile.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\PackagingSettings.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Packaging\PackagingWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\ProjectSelect\ProjectSelectWindow.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\ProjectSelect\TemplateManager.cpp">
+      <Filter>Source Files\Editor</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\External\ExternalModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\External\LaunchersModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Packaging\DockerModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Editor\Preferences\Packaging\PackagingModule.cpp">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Plugins\RuntimePluginManager.cpp">
+      <Filter>Source Files\Engine</Filter>
     </ClCompile>
     <ClCompile Include="FeatureFlags.cpp">
       <Filter>Source Files\Editor</Filter>
@@ -1461,6 +1506,9 @@
     <ClInclude Include="Source\System\SystemUtils.h">
       <Filter>Source Files\System</Filter>
     </ClInclude>
+    <ClInclude Include="Source\System\ModuleLoader.h">
+      <Filter>Source Files\System</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Swap.h">
       <Filter>Source Files\Engine</Filter>
     </ClInclude>
@@ -1502,6 +1550,60 @@
     </ClInclude>
     <ClInclude Include="Source\Editor\Preferences\Appearance\Viewport\ViewportModule.h">
       <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\EditorUIHookManager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Addons\AddonManager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Addons\AddonsWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Addons\NativeAddonManager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\BuildProfile.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\PackagingSettings.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Packaging\PackagingWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\ProjectSelect\ProjectSelectWindow.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\ProjectSelect\TemplateData.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\ProjectSelect\TemplateManager.h">
+      <Filter>Source Files\Editor</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\External\ExternalModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\External\LaunchersModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Packaging\DockerModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Editor\Preferences\Packaging\PackagingModule.h">
+      <Filter>Source Files\Editor\Preferences</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Plugins\EditorUIHooks.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Plugins\OctaveEngineAPI.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Plugins\OctavePluginAPI.h">
+      <Filter>Source Files\Engine</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Plugins\RuntimePluginManager.h">
+      <Filter>Source Files\Engine</Filter>
     </ClInclude>
     <ClInclude Include="FeatureFlags.h">
       <Filter>Source Files\Editor</Filter>
