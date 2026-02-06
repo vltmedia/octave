@@ -1702,7 +1702,7 @@ static void CreateConfigIni(const std::string& projDir, const std::string projNa
     }
 }
 
-static void CreateAndSaveDefaultScene(const std::string& scenePath)
+static void CreateAndSaveDefaultScene(const std::string& scenePath, const std::string& sceneName = "SC_Default")
 {
     // Create a root Node3D using proper construction
     NodePtr root = Node::Construct(Node3D::GetStaticType());
@@ -1715,14 +1715,14 @@ static void CreateAndSaveDefaultScene(const std::string& scenePath)
 
     Scene scene;
     scene.Create();
-    scene.SetName("SC_Default");
+    scene.SetName(sceneName);
     scene.Capture(root.Get());
 
     scene.SaveFile(scenePath.c_str(), Platform::Count);
 
 }
 
-void ActionManager::CreateNewProject(const char* folderPath, bool cpp)
+void ActionManager::CreateNewProject(const char* folderPath, bool cpp, const char* defaultSceneName)
 {
     std::string folderPathStr = folderPath ? folderPath : "";
 
@@ -1880,7 +1880,7 @@ void ActionManager::CreateNewProject(const char* folderPath, bool cpp)
         // Create the Scenes folder and default scene for the new project
         std::string scenesFolder = assetsFolder + "/Scenes/";
         SYS_CreateDirectory(scenesFolder.c_str());
-        CreateAndSaveDefaultScene(scenesFolder + "SC_Default.oct");
+        CreateAndSaveDefaultScene(scenesFolder + std::string(defaultSceneName) + ".oct", defaultSceneName);
 
         // Finally, open the project
         OpenProject(projectFile.c_str());
@@ -1932,6 +1932,7 @@ void ActionManager::OpenProject(const char* path)
         GetEditorState()->ClearAssetDirHistory();
         GetEditorState()->SetAssetDirectory(AssetManager::Get()->FindProjectDirectory(), true);
         GetEditorState()->SetSelectedAssetStub(nullptr);
+        GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] = AssetManager::Get()->FindPackagesDirectory();
 
         // Initialize PackagingSettings for the new project
         PackagingSettings::Create();

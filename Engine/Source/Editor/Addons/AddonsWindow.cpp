@@ -8,8 +8,16 @@
 
 #include "Engine.h"
 #include "Log.h"
+#include "System/System.h"
 
 #include "imgui.h"
+
+#if API_VULKAN
+#include "Graphics/Vulkan/Image.h"
+#include "Graphics/Vulkan/VulkanUtils.h"
+#include "backends/imgui_impl_vulkan.h"
+#include <stb_image.h>
+#endif
 
 #include <algorithm>
 
@@ -28,6 +36,116 @@ AddonsWindow::AddonsWindow()
 
 AddonsWindow::~AddonsWindow()
 {
+    ClearThumbnailCache();
+}
+
+void AddonsWindow::ClearThumbnailCache()
+{
+#if API_VULKAN
+    if (!mThumbnailCache.empty())
+    {
+        DeviceWaitIdle();
+        for (auto& pair : mThumbnailCache)
+        {
+            if (pair.second.mTexId != 0)
+            {
+                ImGui_ImplVulkan_RemoveTexture((VkDescriptorSet)pair.second.mTexId);
+            }
+            if (pair.second.mImage != nullptr)
+            {
+                GetDestroyQueue()->Destroy(pair.second.mImage);
+            }
+        }
+        mThumbnailCache.clear();
+    }
+#endif
+}
+
+ImTextureID AddonsWindow::GetAddonThumbnail(const std::string& addonId)
+{
+    // Check cache first
+    auto it = mThumbnailCache.find(addonId);
+    if (it != mThumbnailCache.end())
+    {
+        return it->second.mTexId;
+    }
+
+#if API_VULKAN
+    // Try installed path first: {ProjectDir}/Packages/{addonId}/thumbnail.png
+    std::string thumbPath;
+    const std::string& projDir = GetEngineState()->mProjectDirectory;
+    if (!projDir.empty())
+    {
+        thumbPath = projDir + "Packages/" + addonId + "/thumbnail.png";
+        if (!SYS_DoesFileExist(thumbPath.c_str(), false))
+        {
+            thumbPath.clear();
+        }
+    }
+
+    // Try addon cache: {CacheDir}/{addonId}/thumbnail.png
+    if (thumbPath.empty())
+    {
+        AddonManager* am = AddonManager::Get();
+        if (am != nullptr)
+        {
+            std::string cachePath = am->GetAddonCacheDirectory() + "/" + addonId + "/thumbnail.png";
+            if (SYS_DoesFileExist(cachePath.c_str(), false))
+            {
+                thumbPath = cachePath;
+            }
+        }
+    }
+
+    if (thumbPath.empty())
+    {
+        mThumbnailCache[addonId] = {};
+        return 0;
+    }
+
+    // Load with stb_image
+    int width, height, channels;
+    stbi_uc* pixels = stbi_load(thumbPath.c_str(), &width, &height, &channels, STBI_rgb_alpha);
+    if (pixels == nullptr)
+    {
+        mThumbnailCache[addonId] = {};
+        return 0;
+    }
+
+    // Create Vulkan image
+    ImageDesc imgDesc;
+    imgDesc.mWidth = width;
+    imgDesc.mHeight = height;
+    imgDesc.mFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    imgDesc.mUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imgDesc.mMipLevels = 1;
+    imgDesc.mLayers = 1;
+
+    SamplerDesc sampDesc;
+    sampDesc.mMagFilter = VK_FILTER_LINEAR;
+    sampDesc.mMinFilter = VK_FILTER_LINEAR;
+    sampDesc.mAddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+    Image* image = new Image(imgDesc, sampDesc, "AddonThumbnail");
+    image->Update(pixels);
+    image->Transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    stbi_image_free(pixels);
+
+    ImTextureID texId = (ImTextureID)ImGui_ImplVulkan_AddTexture(
+        image->GetSampler(),
+        image->GetView(),
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    ThumbnailEntry entry;
+    entry.mTexId = texId;
+    entry.mImage = image;
+    mThumbnailCache[addonId] = entry;
+    return texId;
+#else
+    mThumbnailCache[addonId] = {};
+    return 0;
+#endif
 }
 
 void AddonsWindow::Open()
@@ -58,6 +176,7 @@ void AddonsWindow::Open()
 void AddonsWindow::Close()
 {
     mIsOpen = false;
+    ClearThumbnailCache();
 }
 
 void AddonsWindow::Draw()
@@ -365,18 +484,26 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
 
     ImGui::BeginGroup();
 
-    // Card background
-    ImGui::InvisibleButton("##Card", ImVec2(cardWidth, cardHeight));
+    // Card background (Dummy reserves space without capturing clicks)
+    ImGui::Dummy(ImVec2(cardWidth, cardHeight));
 
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImU32 bgColor = addon.mIsInstalled ? IM_COL32(40, 60, 40, 255) : IM_COL32(50, 50, 60, 255);
     drawList->AddRectFilled(cardPos, ImVec2(cardPos.x + cardWidth, cardPos.y + cardHeight), bgColor, 4.0f);
     drawList->AddRect(cardPos, ImVec2(cardPos.x + cardWidth, cardPos.y + cardHeight), IM_COL32(80, 80, 100, 255), 4.0f);
 
-    // Thumbnail placeholder
+    // Thumbnail
     ImVec2 thumbPos(cardPos.x + 5, cardPos.y + 5);
     ImVec2 thumbSize(cardWidth - 10, 60);
-    drawList->AddRectFilled(thumbPos, ImVec2(thumbPos.x + thumbSize.x, thumbPos.y + thumbSize.y), IM_COL32(70, 70, 90, 255));
+    ImTextureID thumbTex = GetAddonThumbnail(addon.mMetadata.mId);
+    if (thumbTex != 0)
+    {
+        drawList->AddImage(thumbTex, thumbPos, ImVec2(thumbPos.x + thumbSize.x, thumbPos.y + thumbSize.y));
+    }
+    else
+    {
+        drawList->AddRectFilled(thumbPos, ImVec2(thumbPos.x + thumbSize.x, thumbPos.y + thumbSize.y), IM_COL32(70, 70, 90, 255));
+    }
 
     // Native badge
     if (addon.mNative.mHasNative)
@@ -681,12 +808,20 @@ void AddonsWindow::DrawAddonDetailsPopup()
         ImGui::Separator();
         ImGui::Spacing();
 
-        // Thumbnail placeholder
+        // Thumbnail
         ImVec2 thumbSize(400, 100);
-        ImGui::Dummy(thumbSize);
-        ImVec2 thumbPos = ImGui::GetItemRectMin();
-        ImDrawList* drawList = ImGui::GetWindowDrawList();
-        drawList->AddRectFilled(thumbPos, ImVec2(thumbPos.x + thumbSize.x, thumbPos.y + thumbSize.y), IM_COL32(60, 60, 80, 255));
+        ImTextureID thumbTex = GetAddonThumbnail(addon->mMetadata.mId);
+        if (thumbTex != 0)
+        {
+            ImGui::Image(thumbTex, thumbSize);
+        }
+        else
+        {
+            ImGui::Dummy(thumbSize);
+            ImVec2 thumbPos = ImGui::GetItemRectMin();
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            drawList->AddRectFilled(thumbPos, ImVec2(thumbPos.x + thumbSize.x, thumbPos.y + thumbSize.y), IM_COL32(60, 60, 80, 255));
+        }
 
         ImGui::Spacing();
 

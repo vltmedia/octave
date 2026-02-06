@@ -63,6 +63,8 @@ struct Addon
     std::string mRepoUrl;      // Repository URL this addon came from
     bool mHasThumbnail = false;
     bool mIsInstalled = false;
+    bool mIsMain = true;
+    bool mIsStandalone = false; // Addon is entire repo, not a subdirectory
     std::string mInstalledVersion;
     NativeModuleMetadata mNative;  // Native module configuration
 };

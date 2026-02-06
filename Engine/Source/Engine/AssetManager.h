@@ -129,7 +129,9 @@ public:
     AssetDir* FindProjectDirectory();
     AssetDir* FindProjectRootDirectory();
     AssetDir* FindEngineDirectory();
+    AssetDir* FindPackagesDirectory();
     AssetDir* GetRootDirectory();
+    void DiscoverAddonPackages(const std::string& packagesDir);
     std::string GetOctaveDirectory();
     void GatherScriptFiles(const std::string &dir, std::vector<std::string> &outFiles);
     void GatherFontFiles(const std::string& dir, std::vector<std::string>& outFiles);

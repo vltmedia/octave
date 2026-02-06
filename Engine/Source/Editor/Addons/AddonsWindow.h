@@ -4,8 +4,12 @@
 
 #include <string>
 #include <vector>
+#include <unordered_map>
+
+#include "imgui.h"
 
 struct Addon;
+class Image;
 
 /**
  * @brief Window for browsing and installing addons.
@@ -71,6 +75,16 @@ private:
     // Build log popup
     bool mShowBuildLog = false;
     std::string mBuildLogAddonId;
+
+    // Thumbnail cache
+    struct ThumbnailEntry
+    {
+        ImTextureID mTexId = 0;
+        Image* mImage = nullptr;
+    };
+    ImTextureID GetAddonThumbnail(const std::string& addonId);
+    void ClearThumbnailCache();
+    std::unordered_map<std::string, ThumbnailEntry> mThumbnailCache;
 };
 
 AddonsWindow* GetAddonsWindow();

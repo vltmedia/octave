@@ -28,6 +28,7 @@
 #include "Viewport2d.h"
 #include "PaintManager.h"
 #include "Script.h"
+#include "Addons/AddonCreator.h"
 #include "Input/Input.h"
 
 static EditorState sEditorState;
@@ -788,19 +789,39 @@ void EditorState::LoadStartupScene()
 {
     Scene* scene = nullptr;
     std::string startupSceneName = GetEngineConfig()->mDefaultEditorScene;
-    if(startupSceneName == "")
+
+    // Priority 1: Config.ini DefaultEditorScene
+    if (startupSceneName != "")
+    {
+        scene = LoadAsset<Scene>(startupSceneName);
+    }
+
+    // Priority 2: Addon projects load SC_Addon
+    if (scene == nullptr)
+    {
+        const std::string& projDir = GetEngineState()->mProjectDirectory;
+        std::string packageJsonPath = projDir + "package.json";
+        PackageJsonData pkgData;
+        std::string pkgError;
+        if (AddonCreator::ReadPackageJson(packageJsonPath, pkgData, pkgError))
+        {
+            if (pkgData.mType == "addon")
+            {
+                scene = LoadAsset<Scene>("SC_Addon");
+            }
+        }
+    }
+
+    // Priority 3: Fallback to FindDefaultScene (SC_Default / SC_Main)
+    if (scene == nullptr)
     {
         AssetStub* defaultScene = AssetManager::Get()->FindDefaultScene();
-        if(defaultScene != nullptr)
+        if (defaultScene != nullptr)
         {
             scene = LoadAsset<Scene>(defaultScene->mName);
         }
     }
-    if (startupSceneName != "" && scene == nullptr)
-    {
-        scene = LoadAsset<Scene>(startupSceneName);
 
-    }
     if (scene != nullptr)
     {
         ActionManager::Get()->OpenScene(scene);
@@ -1473,25 +1494,29 @@ void EditorState::RegressInspectPast()
 
 void EditorState::ClearAssetDirHistory()
 {
-    mDirPast.clear();
-    mDirFuture.clear();
+    for (int i = 0; i < (int)AssetBrowserTab::Count; ++i)
+    {
+        mTabDirPast[i].clear();
+        mTabDirFuture[i].clear();
+    }
 }
 
 void EditorState::SetAssetDirectory(AssetDir* assetDir, bool recordHistory)
 {
-    if (mCurrentDir != assetDir)
+    int tab = ActiveTab();
+    if (mTabCurrentDir[tab] != assetDir)
     {
-        if (recordHistory && mCurrentDir != nullptr)
+        if (recordHistory && mTabCurrentDir[tab] != nullptr)
         {
-            mDirPast.push_back(mCurrentDir);
-            mDirFuture.clear();
+            mTabDirPast[tab].push_back(mTabCurrentDir[tab]);
+            mTabDirFuture[tab].clear();
         }
 
-        mCurrentDir = assetDir;
+        mTabCurrentDir[tab] = assetDir;
 
-        if (mCurrentDir != nullptr)
+        if (mTabCurrentDir[tab] != nullptr)
         {
-            mCurrentDir->SortChildrenAlphabetically();
+            mTabCurrentDir[tab]->SortChildrenAlphabetically();
         }
 
         GetEditorState()->SetSelectedAssetStub(nullptr);
@@ -1500,7 +1525,7 @@ void EditorState::SetAssetDirectory(AssetDir* assetDir, bool recordHistory)
 
 AssetDir* EditorState::GetAssetDirectory()
 {
-    return mCurrentDir;
+    return mTabCurrentDir[ActiveTab()];
 }
 
 void EditorState::BrowseToAsset(const std::string& name)
@@ -1509,14 +1534,18 @@ void EditorState::BrowseToAsset(const std::string& name)
 
     if (stub != nullptr)
     {
+        // Auto-switch to the correct tab based on asset location
+        if (stub->mDirectory && stub->mDirectory->mAddonDir)
+        {
+            mActiveAssetTab = AssetBrowserTab::Addons;
+        }
+        else
+        {
+            mActiveAssetTab = AssetBrowserTab::Project;
+        }
+
         SetAssetDirectory(stub->mDirectory, true);
         SetSelectedAssetStub(stub);
-
-        const std::vector<AssetDir*>& dirs = mCurrentDir->mChildDirs;
-        const std::vector<AssetStub*>& assets = mCurrentDir->mAssetStubs;
-        const int32_t parentDirCount = (mCurrentDir->mParentDir != nullptr) ? 1 : 0;
-        const int32_t numDirs = int32_t(dirs.size());
-        const int32_t numAssets = int32_t(assets.size());
 
         mTrackSelectedAsset = true;
     }
@@ -1526,7 +1555,7 @@ void EditorState::CaptureAndSaveScene(AssetStub* stub, Node* rootNode)
 {
     if (stub == nullptr)
     {
-        stub = EditorAddUniqueAsset("SC_Scene", mCurrentDir, Scene::GetStaticType(), true);
+        stub = EditorAddUniqueAsset("SC_Scene", mTabCurrentDir[ActiveTab()], Scene::GetStaticType(), true);
     }
 
     if (stub->mAsset == nullptr)
@@ -1610,7 +1639,7 @@ void EditorState::DuplicateAsset(AssetStub* srcStub)
 
         if (srcAsset != nullptr)
         {
-            AssetStub* stub = EditorAddUniqueAsset(srcAsset->GetName().c_str(), mCurrentDir, srcAsset->GetType(), false);
+            AssetStub* stub = EditorAddUniqueAsset(srcAsset->GetName().c_str(), mTabCurrentDir[ActiveTab()], srcAsset->GetType(), false);
 
             if (stub != nullptr)
             {
@@ -1625,16 +1654,17 @@ void EditorState::DuplicateAsset(AssetStub* srcStub)
 
 void EditorState::ProgressDirFuture()
 {
-    if (mDirFuture.size() > 0)
+    int tab = ActiveTab();
+    if (mTabDirFuture[tab].size() > 0)
     {
-        if (mCurrentDir != nullptr)
+        if (mTabCurrentDir[tab] != nullptr)
         {
-            mDirPast.push_back(mCurrentDir);
+            mTabDirPast[tab].push_back(mTabCurrentDir[tab]);
         }
 
-        AssetDir* dir = mDirFuture.back();
+        AssetDir* dir = mTabDirFuture[tab].back();
         OCT_ASSERT(dir);
-        mDirFuture.pop_back();
+        mTabDirFuture[tab].pop_back();
 
         SetAssetDirectory(dir, false);
     }
@@ -1642,17 +1672,18 @@ void EditorState::ProgressDirFuture()
 
 void EditorState::RegressDirPast()
 {
-    if (mDirPast.size() > 0)
+    int tab = ActiveTab();
+    if (mTabDirPast[tab].size() > 0)
     {
-        if (mCurrentDir != nullptr)
+        if (mTabCurrentDir[tab] != nullptr)
         {
             // Record the current dir.
-            mDirFuture.push_back(mCurrentDir);
+            mTabDirFuture[tab].push_back(mTabCurrentDir[tab]);
         }
 
-        AssetDir* dir = mDirPast.back();
+        AssetDir* dir = mTabDirPast[tab].back();
         OCT_ASSERT(dir);
-        mDirPast.pop_back();
+        mTabDirPast[tab].pop_back();
 
         SetAssetDirectory(dir, false);
     }
@@ -1660,11 +1691,12 @@ void EditorState::RegressDirPast()
 
 void EditorState::RemoveFilteredAssetStub(AssetStub* stub)
 {
-    for (int32_t i = int32_t(mFilteredAssetStubs.size()) - 1; i >= 0; --i)
+    int tab = ActiveTab();
+    for (int32_t i = int32_t(mTabFilteredStubs[tab].size()) - 1; i >= 0; --i)
     {
-        if (mFilteredAssetStubs[i] == stub)
+        if (mTabFilteredStubs[tab][i] == stub)
         {
-            mFilteredAssetStubs.erase(mFilteredAssetStubs.begin() + i);
+            mTabFilteredStubs[tab].erase(mTabFilteredStubs[tab].begin() + i);
             break;
         }
     }

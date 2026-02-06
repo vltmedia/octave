@@ -2746,11 +2746,12 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
 
     AssetDir* curDir = GetEditorState()->GetAssetDirectory();
 
-    bool engineFile = false;
+    bool readOnly = false;
     if ((stub && stub->mEngineAsset) ||
-        (dir && dir->mEngineDir))
+        (dir && dir->mEngineDir) ||
+        (curDir && curDir->mAddonDir))
     {
-        engineFile = true;
+        readOnly = true;
     }
 
     bool canInstantiate = false;
@@ -2829,7 +2830,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
     }
 
 
-    if (!engineFile && (stub || dir))
+    if (!readOnly && (stub || dir))
     {
         if (stub && ImGui::Selectable("Save"))
         {
@@ -2865,7 +2866,7 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
     }
 
-    if (curDir && !curDir->mEngineDir)
+    if (curDir && !curDir->mEngineDir && !curDir->mAddonDir)
     {
         if (ImGui::Selectable("Import Asset"))
         {
@@ -3089,8 +3090,8 @@ static void DrawAssetBrowser(bool showFilter, bool interactive)
     AssetDir* currentDir = GetEditorState()->GetAssetDirectory();
 
     static std::string sUpperAssetName;
-    std::string& filterStr = GetEditorState()->mAssetFilterStr;
-    std::vector<AssetStub*>& filteredStubs = GetEditorState()->mFilteredAssetStubs;
+    std::string& filterStr = GetEditorState()->mTabFilterStr[GetEditorState()->ActiveTab()];
+    std::vector<AssetStub*>& filteredStubs = GetEditorState()->mTabFilteredStubs[GetEditorState()->ActiveTab()];
 
     if (showFilter && ImGui::InputText("Filter", &filterStr, ImGuiInputTextFlags_EnterReturnsTrue))
     {
@@ -3290,7 +3291,7 @@ static void DrawAssetBrowser(bool showFilter, bool interactive)
             }
         }
 
-        if (currentDir != nullptr)
+        if (currentDir != nullptr && !currentDir->mAddonDir)
         {
             if (ctrlDown && IsKeyJustDown(KEY_N))
             {
@@ -3306,25 +3307,25 @@ static void DrawAssetBrowser(bool showFilter, bool interactive)
             {
                 CreateNewAsset(ParticleSystem::GetStaticType(), "P_Particle");
             }
-        }
 
-        if (ctrlDown && IsKeyJustDown(KEY_D))
-        {
-            AssetStub* srcStub = GetEditorState()->GetSelectedAssetStub();
-
-            if (srcStub != nullptr)
+            if (ctrlDown && IsKeyJustDown(KEY_D))
             {
-                GetEditorState()->DuplicateAsset(srcStub);
+                AssetStub* srcStub = GetEditorState()->GetSelectedAssetStub();
+
+                if (srcStub != nullptr)
+                {
+                    GetEditorState()->DuplicateAsset(srcStub);
+                }
             }
-        }
 
-        if (IsKeyJustDown(KEY_DELETE))
-        {
-            AssetStub* selStub = GetEditorState()->GetSelectedAssetStub();
-
-            if (selStub != nullptr)
+            if (IsKeyJustDown(KEY_DELETE))
             {
-                ActionManager::Get()->DeleteAsset(selStub);
+                AssetStub* selStub = GetEditorState()->GetSelectedAssetStub();
+
+                if (selStub != nullptr)
+                {
+                    ActionManager::Get()->DeleteAsset(selStub);
+                }
             }
         }
     }
@@ -3348,7 +3349,29 @@ static void DrawAssetsPanel()
 
     ImGui::Begin("Assets", nullptr, kPaneWindowFlags);
 
-    DrawAssetBrowser(true, true);
+    if (ImGui::BeginTabBar("AssetBrowserTabs"))
+    {
+        if (ImGui::BeginTabItem("Project"))
+        {
+            if (GetEditorState()->mActiveAssetTab != AssetBrowserTab::Project)
+                GetEditorState()->mActiveAssetTab = AssetBrowserTab::Project;
+            DrawAssetBrowser(true, true);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Addons"))
+        {
+            if (GetEditorState()->mActiveAssetTab != AssetBrowserTab::Addons)
+            {
+                GetEditorState()->mActiveAssetTab = AssetBrowserTab::Addons;
+                // Init addons tab to Packages root if not set
+                if (GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] == nullptr)
+                    GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] = AssetManager::Get()->FindPackagesDirectory();
+            }
+            DrawAssetBrowser(true, true);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
 
     ImGui::End();
 }

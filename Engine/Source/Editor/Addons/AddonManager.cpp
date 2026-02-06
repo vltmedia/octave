@@ -295,7 +295,12 @@ void AddonManager::RemoveRepository(const std::string& url)
     }
 }
 
-std::string AddonManager::ConvertToRawUrl(const std::string& gitHubUrl, const std::string& filePath)
+static bool IsGitHubUrl(const std::string& str)
+{
+    return str.find("github.com/") != std::string::npos;
+}
+
+std::string AddonManager::ConvertToRawUrl(const std::string& gitHubUrl, const std::string& filePath, const std::string& branch = "main")
 {
     // Convert: https://github.com/user/repo
     // To: https://raw.githubusercontent.com/user/repo/main/filePath
@@ -315,10 +320,10 @@ std::string AddonManager::ConvertToRawUrl(const std::string& gitHubUrl, const st
         url.replace(githubPos, 10, "raw.githubusercontent.com");
     }
 
-    return url + "/main/" + filePath;
+    return url + "/"+ branch +"/" + filePath;
 }
 
-std::string AddonManager::ConvertToDownloadUrl(const std::string& gitHubUrl)
+std::string AddonManager::ConvertToDownloadUrl(const std::string& gitHubUrl,  const std::string& branch = "main")
 {
     std::string url = gitHubUrl;
 
@@ -327,7 +332,7 @@ std::string AddonManager::ConvertToDownloadUrl(const std::string& gitHubUrl)
         url.pop_back();
     }
 
-    return url + "/archive/refs/heads/main.zip";
+    return url + "/archive/refs/heads/"+ branch +".zip";
 }
 
 bool AddonManager::DownloadFile(const std::string& url, const std::string& destPath, std::string& outError)
@@ -365,30 +370,45 @@ bool AddonManager::ExtractZip(const std::string& zipPath, const std::string& des
     {
         SYS_CreateDirectory(destDir.c_str());
     }
-
+    std::string zipPath_ = NormalizePath(zipPath);
+    std::string extractPath = NormalizePath(destDir);
 #if PLATFORM_WINDOWS
-    std::string cmd = "tar -xf \"" + zipPath + "\" -C \"" + destDir + "\" 2>&1";
+    std::string cmd = "C:\\Windows\\System32\\tar.exe -xf \"" + zipPath_ + "\" -C \"" + extractPath + "\" 2>&1";
     SYS_Exec(cmd.c_str(), &output);
 #else
-    std::string cmd = "unzip -o \"" + zipPath + "\" -d \"" + destDir + "\" 2>&1";
+    std::string cmd = "unzip -o \"" + zipPath_ + "\" -d \"" + extractPath + "\" 2>&1";
     SYS_Exec(cmd.c_str(), &output);
 #endif
 
     return true;
 }
-
-bool AddonManager::FetchRepositoryManifest(const std::string& url, AddonRepository& outRepo)
+std::string AddonManager::NormalizePath(const std::string& in)
+{
+    std::string out = in;
+    for (char& c : out)
+    {
+        if (c == '\\')
+            c = '/';
+    }
+    return out;
+}
+bool AddonManager::FetchRepositoryManifest(const std::string& url, AddonRepository& outRepo, const std::string& branch = "main")
 {
     EnsureCacheDirectory();
 
-    std::string rawUrl = ConvertToRawUrl(url, "package.json");
+    std::string rawUrl = ConvertToRawUrl(url, "package.json", branch);
     std::string tempPath = GetAddonCacheDirectory() + "/_temp_manifest.json";
 
     std::string error;
     if (!DownloadFile(rawUrl, tempPath, error))
     {
-        LogWarning("Failed to fetch repository manifest from %s: %s", url.c_str(), error.c_str());
-        return false;
+		// test "master" branch if "main" fails
+		rawUrl = ConvertToRawUrl(url, "package.json", "master");
+        if (!DownloadFile(rawUrl, tempPath, error)) {
+
+            LogWarning("Failed to fetch repository manifest from %s: %s", url.c_str(), error.c_str());
+            return false;
+        }
     }
 
     Stream stream;
@@ -437,17 +457,34 @@ bool AddonManager::FetchRepositoryManifest(const std::string& url, AddonReposito
     return true;
 }
 
-bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::string& addonId, Addon& outAddon)
+bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::string& addonId, Addon& outAddon, const std::string& branch = "main")
 {
     EnsureCacheDirectory();
 
-    std::string rawUrl = ConvertToRawUrl(repoUrl, addonId + "/package.json");
+    std::string rawUrl;
+    std::string effectiveId = addonId;
+
+    if (addonId.empty())
+    {
+        // Standalone repo - package.json is at root
+        rawUrl = ConvertToRawUrl(repoUrl, "package.json", branch);
+        // Derive ID from URL: https://github.com/user/cool-addon -> cool-addon
+        std::string trimmed = repoUrl;
+        while (!trimmed.empty() && trimmed.back() == '/') trimmed.pop_back();
+        size_t lastSlash = trimmed.find_last_of('/');
+        effectiveId = (lastSlash != std::string::npos) ? trimmed.substr(lastSlash + 1) : trimmed;
+    }
+    else
+    {
+        rawUrl = ConvertToRawUrl(repoUrl, addonId + "/package.json", branch);
+    }
+
     std::string tempPath = GetAddonCacheDirectory() + "/_temp_addon_meta.json";
 
     std::string error;
     if (!DownloadFile(rawUrl, tempPath, error))
     {
-        LogWarning("Failed to fetch addon metadata for %s: %s", addonId.c_str(), error.c_str());
+        LogWarning("Failed to fetch addon metadata for %s: %s", effectiveId.c_str(), error.c_str());
         return false;
     }
 
@@ -466,11 +503,11 @@ bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::str
 
     if (doc.HasParseError())
     {
-        LogWarning("Failed to parse addon metadata for %s", addonId.c_str());
+        LogWarning("Failed to parse addon metadata for %s", effectiveId.c_str());
         return false;
     }
 
-    outAddon.mMetadata.mId = addonId;
+    outAddon.mMetadata.mId = effectiveId;
     outAddon.mRepoUrl = repoUrl;
 
     if (doc.HasMember("name") && doc["name"].IsString())
@@ -479,7 +516,7 @@ bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::str
     }
     else
     {
-        outAddon.mMetadata.mName = addonId;
+        outAddon.mMetadata.mName = effectiveId;
     }
 
     if (doc.HasMember("author") && doc["author"].IsString())
@@ -551,7 +588,7 @@ bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::str
         else
         {
             // Default binary name to addon ID (lowercase, no spaces)
-            outAddon.mNative.mBinaryName = addonId;
+            outAddon.mNative.mBinaryName = effectiveId;
         }
 
         if (native.HasMember("entrySymbol") && native["entrySymbol"].IsString())
@@ -566,10 +603,10 @@ bool AddonManager::FetchAddonMetadata(const std::string& repoUrl, const std::str
     }
 
     // Check if installed
-    outAddon.mIsInstalled = IsAddonInstalled(addonId);
+    outAddon.mIsInstalled = IsAddonInstalled(effectiveId);
     if (outAddon.mIsInstalled)
     {
-        outAddon.mInstalledVersion = GetInstalledVersion(addonId);
+        outAddon.mInstalledVersion = GetInstalledVersion(effectiveId);
     }
 
     return true;
@@ -599,11 +636,16 @@ void AddonManager::RefreshAllRepositories()
 void AddonManager::RefreshRepository(const std::string& url)
 {
     AddonRepository repoInfo;
-    if (!FetchRepositoryManifest(url, repoInfo))
+    if (!FetchRepositoryManifest(url, repoInfo, "main"))
     {
-        return;
-    }
+        if (!FetchRepositoryManifest(url, repoInfo, "master"))
+        {
+            return;
+        }
 
+    }
+    
+  
     // Update repository in list
     for (AddonRepository& repo : mRepositories)
     {
@@ -619,13 +661,38 @@ void AddonManager::RefreshRepository(const std::string& url)
     for (const std::string& addonId : repoInfo.mAddonIds)
     {
         Addon addon;
-        if (FetchAddonMetadata(url, addonId, addon))
+        bool fetched = false;
+
+        if (IsGitHubUrl(addonId))
+        {
+            // Standalone addon from external repo
+            fetched = FetchAddonMetadata(addonId, "", addon, "main");
+            if (fetched)
+            {
+                addon.mIsStandalone = true;
+            }
+            else {
+                fetched = FetchAddonMetadata(addonId, "", addon, "master");
+                if (fetched)
+                {
+                    addon.mIsStandalone = true;
+                    addon.mIsMain = false;
+                }
+            }
+        }
+        else
+        {
+            // Local subdirectory addon
+            fetched = FetchAddonMetadata(url, addonId, addon);
+        }
+
+        if (fetched)
         {
             // Check if already in list (avoid duplicates from multiple repos)
             bool exists = false;
             for (const Addon& existing : mAvailableAddons)
             {
-                if (existing.mMetadata.mId == addonId)
+                if (existing.mMetadata.mId == addon.mMetadata.mId)
                 {
                     exists = true;
                     break;
@@ -647,7 +714,9 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
     EnsureCacheDirectory();
 
     // Download the full repo and extract just this addon folder
-    std::string downloadUrl = ConvertToDownloadUrl(addon.mRepoUrl);
+    std::string downloadUrl = ConvertToDownloadUrl(addon.mRepoUrl, addon.mIsMain ? "main" : "master");
+	// extract repoName from URL for logging
+    std::string repoName = addon.mRepoUrl.substr(addon.mRepoUrl.find_last_of('/') + 1) + "-" + (addon.mIsMain ? "main" : "master");
     std::string zipPath = GetAddonCacheDirectory() + "/_temp_repo.zip";
     std::string extractDir = GetAddonCacheDirectory() + "/_temp_extract";
 
@@ -667,23 +736,15 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
         return false;
     }
 
-    SYS_RemoveFile(zipPath.c_str());
+    extractDir = extractDir + "/" + repoName;
+    //SYS_RemoveFile(zipPath.c_str());
 
     // Find the extracted folder (GitHub zips have repo-name-branch structure)
     DirEntry dirEntry;
-    SYS_OpenDirectory(extractDir, dirEntry);
-    std::string extractedRepoFolder;
-
-    while (dirEntry.mValid)
-    {
-        if (dirEntry.mDirectory && strcmp(dirEntry.mFilename, ".") != 0 && strcmp(dirEntry.mFilename, "..") != 0)
-        {
-            extractedRepoFolder = extractDir + "/" + dirEntry.mFilename;
-            break;
-        }
-        SYS_IterateDirectory(dirEntry);
-    }
-    SYS_CloseDirectory(dirEntry);
+    //SYS_OpenDirectory(extractDir, dirEntry);
+    std::string extractedRepoFolder = extractDir;
+    
+    //SYS_CloseDirectory(dirEntry);
 
     if (extractedRepoFolder.empty())
     {
@@ -692,25 +753,38 @@ bool AddonManager::DownloadAddon(const Addon& addon, std::string& outError)
         return false;
     }
 
-    // Find the addon folder within
-    std::string addonPath = extractedRepoFolder + "/" + addon.mMetadata.mId;
-    if (!DoesDirExist(addonPath.c_str()))
+    // Find the addon folder
+    std::string addonPath;
+    if (addon.mIsStandalone)
     {
-        outError = "Addon folder not found in repository: " + addon.mMetadata.mId;
-        SYS_RemoveDirectory(extractDir.c_str());
-        return false;
+        // Standalone: the entire extracted repo IS the addon
+        addonPath = extractedRepoFolder;
+    }
+    else
+    {
+        // Subdirectory: find addon folder within repo
+        addonPath = extractedRepoFolder + "/" + addon.mMetadata.mId;
+        if (!DoesDirExist(addonPath.c_str()))
+        {
+            outError = "Addon folder not found in repository: " + addon.mMetadata.mId;
+            SYS_RemoveDirectory(extractDir.c_str());
+            return false;
+        }
     }
 
     // Move addon to cache
     std::string cachedAddonPath = GetAddonCacheDirectory() + "/" + addon.mMetadata.mId;
     if (DoesDirExist(cachedAddonPath.c_str()))
     {
-        SYS_RemoveDirectory(cachedAddonPath.c_str());
+        //SYS_RemoveDirectory(cachedAddonPath.c_str());
     }
-    SYS_MoveDirectory(addonPath.c_str(), cachedAddonPath.c_str());
+    SYS_CreateDirectory(cachedAddonPath.c_str());
+
+    SYS_CopyDirectoryRecursive(addonPath.c_str(), cachedAddonPath.c_str());
+    //SYS_MoveDirectory(addonPath.c_str(), cachedAddonPath.c_str());
 
     // Clean up
-    SYS_RemoveDirectory(extractDir.c_str());
+    //SYS_RemoveDirectory(extractDir.c_str());
 
     // Install to project
     return InstallAddon(cachedAddonPath, addon.mMetadata.mId, outError);
@@ -805,10 +879,27 @@ bool AddonManager::MergeAddonIntoProject(const std::string& addonPath, std::stri
 
 bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::string& addonId, std::string& outError)
 {
-    if (!MergeAddonIntoProject(addonCachePath, outError))
+    const std::string& projectDir = GetEngineState()->mProjectDirectory;
+    if (projectDir.empty())
     {
+        outError = "No project loaded";
         return false;
     }
+
+    // Install to Packages/{addonId}/
+    std::string packagesDir = projectDir + "Packages";
+    if (!DoesDirExist(packagesDir.c_str()))
+    {
+        SYS_CreateDirectory(packagesDir.c_str());
+    }
+
+    std::string destDir = packagesDir + "/" + addonId;
+    if (DoesDirExist(destDir.c_str()))
+    {
+        SYS_RemoveDirectory(destDir.c_str());
+    }
+    SYS_CreateDirectory(destDir.c_str());
+    SYS_CopyDirectoryRecursive(addonCachePath.c_str(), destDir.c_str());
 
     // Record installation
     const Addon* addon = FindAddon(addonId);

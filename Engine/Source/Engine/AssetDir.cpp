@@ -5,7 +5,9 @@
 #include <algorithm>
 
 AssetDir::AssetDir() :
-    mParentDir(nullptr)
+    mParentDir(nullptr),
+    mEngineDir(false),
+    mAddonDir(false)
 {
 
 }
@@ -16,11 +18,13 @@ AssetDir::AssetDir(const std::string& name,
     mName(name),
     mPath(localPath),
     mParentDir(parent),
-    mEngineDir(false)
+    mEngineDir(false),
+    mAddonDir(false)
 {
     if (parent != nullptr)
     {
         mEngineDir = parent->mEngineDir;
+        mAddonDir = parent->mAddonDir;
         parent->mChildDirs.push_back(this);
     }
 }

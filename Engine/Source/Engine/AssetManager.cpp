@@ -1630,6 +1630,59 @@ AssetDir* AssetManager::FindEngineDirectory()
     return retDir;
 }
 
+AssetDir* AssetManager::FindPackagesDirectory()
+{
+    AssetDir* retDir = nullptr;
+    uint32_t numChildDirs = uint32_t(mRootDirectory ? mRootDirectory->mChildDirs.size() : 0);
+    for (uint32_t i = 0; i < numChildDirs; ++i)
+    {
+        if (mRootDirectory->mChildDirs[i]->mName == "Packages")
+        {
+            retDir = mRootDirectory->mChildDirs[i];
+            break;
+        }
+    }
+
+    return retDir;
+}
+
+void AssetManager::DiscoverAddonPackages(const std::string& packagesDir)
+{
+    if (!DoesDirExist(packagesDir.c_str()))
+    {
+        return;
+    }
+
+    // Create "Packages" directory under root
+    AssetDir* packagesAssetDir = new AssetDir("Packages", packagesDir, mRootDirectory);
+    packagesAssetDir->mAddonDir = true;
+
+    DirEntry dirEntry = {};
+    SYS_OpenDirectory(packagesDir, dirEntry);
+
+    while (dirEntry.mValid)
+    {
+        if (dirEntry.mDirectory &&
+            strcmp(dirEntry.mFilename, ".") != 0 &&
+            strcmp(dirEntry.mFilename, "..") != 0)
+        {
+            std::string addonPath = packagesDir + dirEntry.mFilename + "/";
+            std::string assetsPath = addonPath + "Assets/";
+
+            if (DoesDirExist(assetsPath.c_str()))
+            {
+                // Create addon dir under Packages
+                AssetDir* addonDir = new AssetDir(dirEntry.mFilename, assetsPath, packagesAssetDir);
+                addonDir->mAddonDir = true;
+                DiscoverDirectory(addonDir, false);
+            }
+        }
+
+        SYS_IterateDirectory(dirEntry);
+    }
+    SYS_CloseDirectory(dirEntry);
+}
+
 AssetDir* AssetManager::GetRootDirectory()
 {
     return mRootDirectory;

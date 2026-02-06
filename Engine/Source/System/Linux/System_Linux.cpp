@@ -676,7 +676,7 @@ bool SYS_CreateDirectory(const char* dirPath)
 
 void SYS_RemoveDirectory(const char* dirPath)
 {
-    std::string cmdStr = std::string("rm -rf ") + dirPath;
+    std::string cmdStr = std::string("rm -rf ") + "\""+dirPath+ "\"";
     SYS_Exec(cmdStr.c_str());
 }
 

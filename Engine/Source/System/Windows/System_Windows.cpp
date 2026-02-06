@@ -500,8 +500,9 @@ void SYS_RemoveDirectory(const char* dirPath)
             path[i] = '\\';
         }
     }
-
-    std::string cmd = std::string("rmdir ") + path + " /s /q";
+    // check if path includes a space, if so wrap in quotes
+    std::string quotedPath = "\"" + path + "\"";
+    std::string cmd = "rmdir /s /q " + quotedPath;
     SYS_Exec(cmd.c_str());
 }
 

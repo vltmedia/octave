@@ -16,6 +16,7 @@ public:
     std::vector<AssetDir*> mChildDirs;
     AssetDir* mParentDir;
     bool mEngineDir;
+    bool mAddonDir;
 
     ~AssetDir();
     AssetDir(const std::string& name,

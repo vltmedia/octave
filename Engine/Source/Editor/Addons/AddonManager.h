@@ -63,12 +63,9 @@ private:
 
     /** @brief Ensure cache directory exists */
     void EnsureCacheDirectory();
-
-    /** @brief Fetch repository manifest from package.json at repo root */
-    bool FetchRepositoryManifest(const std::string& url, AddonRepository& outRepo);
-
+    bool FetchRepositoryManifest(const std::string& url, AddonRepository& outRepo, const std::string& branch);
     /** @brief Fetch addon metadata from addon's package.json */
-    bool FetchAddonMetadata(const std::string& repoUrl, const std::string& addonId, Addon& outAddon);
+    bool FetchAddonMetadata(const std::string& repoUrl, const std::string& addonId, Addon& outAddon, const std::string& branch);
 
     /** @brief Merge addon files into current project */
     bool MergeAddonIntoProject(const std::string& addonPath, std::string& outError);
@@ -79,11 +76,13 @@ private:
     /** @brief Extract a zip file */
     bool ExtractZip(const std::string& zipPath, const std::string& destDir, std::string& outError);
 
+    std::string NormalizePath(const std::string& in);
+
     /** @brief Convert GitHub URL to raw content URL */
-    std::string ConvertToRawUrl(const std::string& gitHubUrl, const std::string& filePath);
+    std::string ConvertToRawUrl(const std::string& gitHubUrl, const std::string& filePath, const std::string& branch);
 
     /** @brief Convert GitHub URL to download URL */
-    std::string ConvertToDownloadUrl(const std::string& gitHubUrl);
+    std::string ConvertToDownloadUrl(const std::string& gitHubUrl, const std::string& branch);
 
     /** @brief Get current timestamp as ISO string */
     std::string GetCurrentTimestamp();

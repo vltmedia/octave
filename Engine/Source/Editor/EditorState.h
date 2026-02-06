@@ -66,6 +66,13 @@ enum class PaintMode
     Count
 };
 
+enum class AssetBrowserTab
+{
+    Project = 0,
+    Addons = 1,
+    Count
+};
+
 struct LinkedSceneProps
 {
     Node* mNode = nullptr;
@@ -107,9 +114,12 @@ struct EditorState
     glm::vec4 mSavedEditorClearColor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     int32_t mEditSceneIndex = -1;
     int32_t mPieEditSceneIdx = -1;
-    AssetDir* mCurrentDir = nullptr;
-    std::vector<AssetDir*> mDirPast;
-    std::vector<AssetDir*> mDirFuture;
+    AssetBrowserTab mActiveAssetTab = AssetBrowserTab::Project;
+    AssetDir* mTabCurrentDir[(int)AssetBrowserTab::Count] = {};
+    std::vector<AssetDir*> mTabDirPast[(int)AssetBrowserTab::Count];
+    std::vector<AssetDir*> mTabDirFuture[(int)AssetBrowserTab::Count];
+    std::string mTabFilterStr[(int)AssetBrowserTab::Count];
+    std::vector<AssetStub*> mTabFilteredStubs[(int)AssetBrowserTab::Count];
     std::vector<Object*> mInspectPast;
     std::vector<Object*> mInspectFuture;
     Object* mInspectedObject;
@@ -119,8 +129,6 @@ struct EditorState
     Viewport3D* mViewport3D = nullptr;
     Viewport2D* mViewport2D = nullptr;
     std::string mIOAssetPath;
-    std::string mAssetFilterStr;
-    std::vector<AssetStub*> mFilteredAssetStubs;
     bool mRequestSaveSceneAs = false;
     bool mTrackSelectedAsset = false;
     bool mTrackSelectedNode = false;
@@ -247,6 +255,7 @@ struct EditorState
     void RegressDirPast();
 
     void RemoveFilteredAssetStub(AssetStub* stub);
+    int ActiveTab() const { return (int)mActiveAssetTab; }
 
     Viewport3D* GetViewport3D();
     Viewport2D* GetViewport2D();

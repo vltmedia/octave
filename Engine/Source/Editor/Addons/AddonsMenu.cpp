@@ -575,7 +575,8 @@ static void DrawCreateAddonDialog()
                     if (shouldCreateProject)
                     {
                         // Create project with .octp, Config.ini, and default scene
-                        ActionManager::Get()->CreateNewProject(createdPath.c_str(), false);
+                        const char* sceneName = sCreateAddonIsTemplate ? "SC_Default" : "SC_Addon";
+                        ActionManager::Get()->CreateNewProject(createdPath.c_str(), false, sceneName);
                         GetProjectSelectWindow()->Close();
                     }
                     else

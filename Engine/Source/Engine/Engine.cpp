@@ -807,6 +807,9 @@ void LoadProject(const std::string& path, bool discoverAssets)
         sEngineState.mProjectName != "")
     {
         AssetManager::Get()->Discover(sEngineState.mProjectName.c_str(), (sEngineState.mProjectDirectory + "Assets/").c_str());
+
+        std::string packagesDir = sEngineState.mProjectDirectory + "Packages/";
+        AssetManager::Get()->DiscoverAddonPackages(packagesDir);
     }
 
     if (!IsHeadless())
