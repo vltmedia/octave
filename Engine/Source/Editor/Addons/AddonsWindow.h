@@ -72,6 +72,11 @@ private:
     bool mNeedsRefresh = true;
     bool mIsRefreshing = false;
 
+    // Uninstall confirmation
+    bool mShowUninstallConfirm = false;
+    std::string mUninstallAddonId;
+    void DrawUninstallConfirmPopup();
+
     // Build log popup
     bool mShowBuildLog = false;
     std::string mBuildLogAddonId;

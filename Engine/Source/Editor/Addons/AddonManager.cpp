@@ -938,13 +938,21 @@ bool AddonManager::InstallAddon(const std::string& addonCachePath, const std::st
 
 bool AddonManager::UninstallAddon(const std::string& addonId)
 {
-    // Note: We don't actually remove files since they may have been modified
-    // Just remove from tracking
-
     for (auto it = mInstalledAddons.begin(); it != mInstalledAddons.end(); ++it)
     {
         if (it->mId == addonId)
         {
+            // Remove addon files from Packages/
+            const std::string& projectDir = GetEngineState()->mProjectDirectory;
+            if (!projectDir.empty())
+            {
+                std::string addonDir = projectDir + "Packages/" + addonId;
+                if (DoesDirExist(addonDir.c_str()))
+                {
+                    SYS_RemoveDirectory(addonDir.c_str());
+                }
+            }
+
             mInstalledAddons.erase(it);
             SaveInstalledAddons();
 

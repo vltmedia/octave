@@ -9,6 +9,9 @@
 #include "Engine.h"
 #include "Log.h"
 #include "System/System.h"
+#include "AssetManager.h"
+#include "AssetDir.h"
+#include "EditorState.h"
 
 #include "imgui.h"
 
@@ -259,6 +262,7 @@ void AddonsWindow::Draw()
     // Draw popups
     DrawAddonDetailsPopup();
     DrawAddRepoPopup();
+    DrawUninstallConfirmPopup();
 
     // Draw build log popup
     if (mShowBuildLog)
@@ -455,7 +459,7 @@ void AddonsWindow::DrawAddonBrowser()
 
     // Addon grid
     float cardWidth = 200.0f;
-    float cardHeight = 150.0f;
+    float cardHeight = 200.0f;
     float spacing = 10.0f;
     int cardsPerRow = (int)((ImGui::GetContentRegionAvail().x + spacing) / (cardWidth + spacing));
     if (cardsPerRow < 1) cardsPerRow = 1;
@@ -479,7 +483,7 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
 {
     ImGui::PushID(addon.mMetadata.mId.c_str());
 
-    float cardHeight = 150.0f;
+    float cardHeight = 200.0f;
     ImVec2 cardPos = ImGui::GetCursorScreenPos();
 
     ImGui::BeginGroup();
@@ -492,9 +496,10 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
     drawList->AddRectFilled(cardPos, ImVec2(cardPos.x + cardWidth, cardPos.y + cardHeight), bgColor, 4.0f);
     drawList->AddRect(cardPos, ImVec2(cardPos.x + cardWidth, cardPos.y + cardHeight), IM_COL32(80, 80, 100, 255), 4.0f);
 
-    // Thumbnail
+    // Thumbnail (square)
     ImVec2 thumbPos(cardPos.x + 5, cardPos.y + 5);
-    ImVec2 thumbSize(cardWidth - 10, 60);
+    float thumbSide = cardWidth - 10;
+    ImVec2 thumbSize(thumbSide, thumbSide);
     ImTextureID thumbTex = GetAddonThumbnail(addon.mMetadata.mId);
     if (thumbTex != 0)
     {
@@ -517,7 +522,8 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
     }
 
     // Name
-    ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, cardPos.y + 70));
+    float textStartY = cardPos.y + thumbSide + 10;
+    ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, textStartY));
     ImGui::PushTextWrapPos(cardPos.x + cardWidth - 5);
     ImGui::TextWrapped("%s", addon.mMetadata.mName.c_str());
     ImGui::PopTextWrapPos();
@@ -525,7 +531,7 @@ void AddonsWindow::DrawAddonCard(const Addon& addon, float cardWidth)
     // Author
     if (!addon.mMetadata.mAuthor.empty())
     {
-        ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, cardPos.y + 90));
+        ImGui::SetCursorScreenPos(ImVec2(cardPos.x + 5, textStartY + 20));
         ImGui::TextDisabled("by %s", addon.mMetadata.mAuthor.c_str());
     }
 
@@ -633,7 +639,8 @@ void AddonsWindow::DrawInstalledAddons()
 
         if (ImGui::SmallButton("Uninstall"))
         {
-            OnUninstallAddon(inst.mId);
+            mUninstallAddonId = inst.mId;
+            mShowUninstallConfirm = true;
         }
 
         // Native addon controls
@@ -799,7 +806,7 @@ void AddonsWindow::DrawAddonDetailsPopup()
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(450, 350));
+    ImGui::SetNextWindowSize(ImVec2(450, 450));
 
     if (ImGui::Begin("Addon Details", &mShowAddonDetails,
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
@@ -808,8 +815,8 @@ void AddonsWindow::DrawAddonDetailsPopup()
         ImGui::Separator();
         ImGui::Spacing();
 
-        // Thumbnail
-        ImVec2 thumbSize(400, 100);
+        // Thumbnail (square)
+        ImVec2 thumbSize(200, 200);
         ImTextureID thumbTex = GetAddonThumbnail(addon->mMetadata.mId);
         if (thumbTex != 0)
         {
@@ -974,6 +981,25 @@ void AddonsWindow::OnDownloadAddon(const std::string& addonId)
     {
         mStatusMessage = addon->mMetadata.mName + " installed successfully!";
         mErrorMessage.clear();
+
+        // Re-discover addon packages so the new addon shows up in the Assets panel
+        AssetDir* rootDir = AssetManager::Get()->GetRootDirectory();
+        if (rootDir != nullptr)
+        {
+            AssetDir* oldPackages = AssetManager::Get()->FindPackagesDirectory();
+            if (oldPackages != nullptr)
+            {
+                rootDir->DeleteSubdirectory("Packages");
+            }
+
+            std::string packagesDir = GetEngineState()->mProjectDirectory + "Packages/";
+            AssetManager::Get()->DiscoverAddonPackages(packagesDir);
+
+            // Update Addons tab directory
+            GetEditorState()->mTabCurrentDir[(int)AssetBrowserTab::Addons] = AssetManager::Get()->FindPackagesDirectory();
+        }
+
+        ClearThumbnailCache();
     }
     else
     {
@@ -1000,12 +1026,48 @@ void AddonsWindow::OnUninstallAddon(const std::string& addonId)
 
     if (am->UninstallAddon(addonId))
     {
-        mStatusMessage = "Addon uninstalled (files remain in project)";
+        mStatusMessage = "Addon uninstalled successfully";
     }
     else
     {
         mErrorMessage = "Failed to uninstall addon";
     }
+}
+
+void AddonsWindow::DrawUninstallConfirmPopup()
+{
+    if (!mShowUninstallConfirm)
+    {
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(350, 0));
+
+    if (ImGui::Begin("Uninstall Addon", &mShowUninstallConfirm,
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::TextWrapped("Are you sure you want to uninstall \"%s\"? This will delete the addon files from the Packages folder.", mUninstallAddonId.c_str());
+        ImGui::Spacing();
+
+        if (ImGui::Button("Uninstall", ImVec2(120, 0)))
+        {
+            OnUninstallAddon(mUninstallAddonId);
+            mShowUninstallConfirm = false;
+            mUninstallAddonId.clear();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            mShowUninstallConfirm = false;
+            mUninstallAddonId.clear();
+        }
+    }
+    ImGui::End();
 }
 
 void AddonsWindow::OnAddRepository()
