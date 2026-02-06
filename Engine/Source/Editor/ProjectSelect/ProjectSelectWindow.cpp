@@ -3,6 +3,7 @@
 #include "ProjectSelectWindow.h"
 #include "TemplateManager.h"
 #include "TemplateData.h"
+#include "../Addons/AddonsMenu.h"
 
 #include "EditorState.h"
 #include "ActionManager.h"
@@ -291,6 +292,13 @@ void ProjectSelectWindow::DrawCreateProject()
     {
         ImGui::EndDisabled();
     }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Text("Or create an addon:");
+    ImGui::Spacing();
+    DrawAddonsCreateItems_ProjectSelect();
 }
 
 void ProjectSelectWindow::DrawTemplates()

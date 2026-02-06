@@ -2182,6 +2182,13 @@ bool NativeAddonManager::CreateNativeAddon(const NativeAddonCreateInfo& info, st
         return false;
     }
 
+    std::string packagesDir = projectDir + "Packages/";
+    return CreateNativeAddonAtPath(info, packagesDir, outError, outPath);
+}
+
+bool NativeAddonManager::CreateNativeAddonAtPath(const NativeAddonCreateInfo& info, const std::string& targetDir,
+                                                   std::string& outError, std::string* outPath)
+{
     // Validate name
     if (info.mName.empty())
     {
@@ -2209,15 +2216,19 @@ bool NativeAddonManager::CreateNativeAddon(const NativeAddonCreateInfo& info, st
             binaryNameClean += c;
     }
 
-    // Create Packages directory if it doesn't exist
-    std::string packagesDir = projectDir + "Packages/";
-    if (!DoesDirExist(packagesDir.c_str()))
+    // Create target directory if it doesn't exist
+    if (!DoesDirExist(targetDir.c_str()))
     {
-        SYS_CreateDirectory(packagesDir.c_str());
+        SYS_CreateDirectory(targetDir.c_str());
     }
 
     // Create addon directory
-    std::string addonPath = packagesDir + addonId + "/";
+    std::string normalizedTarget = targetDir;
+    if (!normalizedTarget.empty() && normalizedTarget.back() != '/' && normalizedTarget.back() != '\\')
+    {
+        normalizedTarget += '/';
+    }
+    std::string addonPath = normalizedTarget + addonId + "/";
     if (DoesDirExist(addonPath.c_str()))
     {
         outError = "Addon folder already exists: " + addonPath;

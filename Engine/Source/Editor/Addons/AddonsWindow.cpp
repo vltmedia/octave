@@ -1,6 +1,7 @@
 #if EDITOR
 
 #include "AddonsWindow.h"
+#include "AddonsMenu.h"
 #include "AddonManager.h"
 #include "NativeAddonManager.h"
 #include "../ProjectSelect/TemplateData.h"
@@ -97,10 +98,16 @@ void AddonsWindow::Draw()
     ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always);
     ImGui::SetNextWindowSize(windowSize, ImGuiCond_Always);
 
-    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse;
+    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar;
 
     if (ImGui::Begin("Addons", &mIsOpen, windowFlags))
     {
+        if (ImGui::BeginMenuBar())
+        {
+            DrawAddonsMenuBar();
+            ImGui::EndMenuBar();
+        }
+
         // Tab bar
         if (ImGui::BeginTabBar("AddonsTabs"))
         {

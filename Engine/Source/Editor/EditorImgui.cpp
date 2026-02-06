@@ -40,6 +40,7 @@
 #include "ProjectSelect/ProjectSelectWindow.h"
 #include "Addons/AddonsWindow.h"
 #include "Addons/NativeAddonManager.h"
+#include "Addons/AddonsMenu.h"
 #include "EditorUIHookManager.h"
 #include "DebugLog/DebugLogWindow.h"
 #include "Preferences/General/GeneralModule.h"
@@ -117,28 +118,6 @@ static bool sUnsavedModalActive = false;
 
 static std::vector<std::string> sSceneList;
 static int32_t sDevModeClicks = 0;
-
-// Native Addon Create Dialog State
-static bool sShowCreateNativeAddonDialog = false;
-static char sCreateAddonName[256] = {};
-static char sCreateAddonAuthor[256] = {};
-static char sCreateAddonDescription[512] = {};
-static char sCreateAddonVersion[64] = "1.0.0";
-static int sCreateAddonTarget = 0;  // 0 = Engine + Editor, 1 = Editor Only
-static std::string sCreateAddonError;
-static std::string sCreateAddonSuccess;
-
-// Native Addon Package Dialog State
-static bool sShowPackageNativeAddonDialog = false;
-static int sPackageSelectedAddon = 0;
-static bool sPackageIncludeSource = true;
-static bool sPackageIncludeAssets = true;
-static bool sPackageIncludeScripts = true;
-static bool sPackageIncludeThumbnail = true;
-static char sPackageOutputPath[512] = {};
-static std::string sPackageError;
-static std::string sPackageSuccess;
-static std::vector<std::string> sPackageAddonList;
 
 static bool IsBottomPaneVisible()
 {
@@ -834,283 +813,6 @@ static void DrawProjectUpgradeModal()
         if (closePopup)
         {
             editorState->mShowProjectUpgradeModal = false;
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::EndPopup();
-    }
-}
-
-static void DrawCreateNativeAddonDialog()
-{
-    if (sShowCreateNativeAddonDialog)
-    {
-        ImGui::OpenPopup("Create Native Addon");
-    }
-
-    // Center the modal
-    if (ImGui::IsPopupOpen("Create Native Addon"))
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(450, 380));
-    }
-
-    if (ImGui::BeginPopupModal("Create Native Addon", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-    {
-        ImGui::Text("Create a new native addon with C++ source code.");
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Name
-        ImGui::Text("Addon Name *");
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputText("##AddonName", sCreateAddonName, sizeof(sCreateAddonName));
-        ImGui::Spacing();
-
-        // Author
-        ImGui::Text("Author");
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputText("##AddonAuthor", sCreateAddonAuthor, sizeof(sCreateAddonAuthor));
-        ImGui::Spacing();
-
-        // Description
-        ImGui::Text("Description");
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputTextMultiline("##AddonDescription", sCreateAddonDescription, sizeof(sCreateAddonDescription), ImVec2(-1, 60));
-        ImGui::Spacing();
-
-        // Version
-        ImGui::Text("Version");
-        ImGui::SetNextItemWidth(100);
-        ImGui::InputText("##AddonVersion", sCreateAddonVersion, sizeof(sCreateAddonVersion));
-        ImGui::Spacing();
-
-        // Target
-        ImGui::Text("Target");
-        const char* targetItems[] = { "Engine + Editor (Recommended)", "Editor Only" };
-        ImGui::SetNextItemWidth(-1);
-        ImGui::Combo("##AddonTarget", &sCreateAddonTarget, targetItems, 2);
-        ImGui::Spacing();
-
-        // Error/Success messages
-        if (!sCreateAddonError.empty())
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-            ImGui::TextWrapped("%s", sCreateAddonError.c_str());
-            ImGui::PopStyleColor();
-        }
-        if (!sCreateAddonSuccess.empty())
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
-            ImGui::TextWrapped("%s", sCreateAddonSuccess.c_str());
-            ImGui::PopStyleColor();
-        }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Buttons
-        bool closePopup = false;
-
-        if (ImGui::Button("Create", ImVec2(100, 0)))
-        {
-            if (strlen(sCreateAddonName) == 0)
-            {
-                sCreateAddonError = "Addon name is required.";
-            }
-            else
-            {
-                NativeAddonManager* nam = NativeAddonManager::Get();
-                if (nam != nullptr)
-                {
-                    NativeAddonCreateInfo info;
-                    info.mName = sCreateAddonName;
-                    info.mAuthor = sCreateAddonAuthor;
-                    info.mDescription = sCreateAddonDescription;
-                    info.mVersion = sCreateAddonVersion;
-                    info.mTarget = (sCreateAddonTarget == 0) ?
-                        NativeAddonTarget::EngineAndEditor : NativeAddonTarget::EditorOnly;
-
-                    std::string error;
-                    std::string createdPath;
-                    if (nam->CreateNativeAddon(info, error, &createdPath))
-                    {
-                        sCreateAddonSuccess = "Addon created successfully!";
-                        sCreateAddonError.clear();
-
-                        // Open the created folder in file explorer
-                        if (!createdPath.empty())
-                        {
-                            SYS_ExplorerOpenDirectory(createdPath);
-                        }
-
-                        // Close the dialog after successful creation
-                        sShowCreateNativeAddonDialog = false;
-                        ImGui::CloseCurrentPopup();
-                    }
-                    else
-                    {
-                        sCreateAddonError = error;
-                        sCreateAddonSuccess.clear();
-                    }
-                }
-            }
-        }
-
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 0)))
-        {
-            closePopup = true;
-        }
-
-        if (IsKeyJustDown(KEY_ESCAPE))
-        {
-            closePopup = true;
-        }
-
-        if (closePopup)
-        {
-            sShowCreateNativeAddonDialog = false;
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::EndPopup();
-    }
-}
-
-static void DrawPackageNativeAddonDialog()
-{
-    if (sShowPackageNativeAddonDialog)
-    {
-        ImGui::OpenPopup("Package Native Addon");
-    }
-
-    // Center the modal
-    if (ImGui::IsPopupOpen("Package Native Addon"))
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(450, 350));
-    }
-
-    if (ImGui::BeginPopupModal("Package Native Addon", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-    {
-        ImGui::Text("Package a native addon for distribution.");
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Addon selection
-        ImGui::Text("Select Addon");
-        ImGui::SetNextItemWidth(-1);
-
-        if (sPackageAddonList.empty())
-        {
-            ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "No native addons found in Packages/ folder.");
-        }
-        else
-        {
-            std::vector<const char*> addonNames;
-            for (const auto& id : sPackageAddonList)
-            {
-                addonNames.push_back(id.c_str());
-            }
-
-            ImGui::Combo("##SelectAddon", &sPackageSelectedAddon, addonNames.data(), (int)addonNames.size());
-        }
-        ImGui::Spacing();
-
-        // Include options
-        ImGui::Text("Include in Package:");
-        ImGui::Checkbox("Source Code", &sPackageIncludeSource);
-        ImGui::Checkbox("Assets", &sPackageIncludeAssets);
-        ImGui::Checkbox("Scripts", &sPackageIncludeScripts);
-        ImGui::Checkbox("Thumbnail", &sPackageIncludeThumbnail);
-        ImGui::Spacing();
-
-        // Output path (optional)
-        ImGui::Text("Output Path (optional, leave empty for default)");
-        ImGui::SetNextItemWidth(-1);
-        ImGui::InputText("##OutputPath", sPackageOutputPath, sizeof(sPackageOutputPath));
-        ImGui::Spacing();
-
-        // Error/Success messages
-        if (!sPackageError.empty())
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.3f, 0.3f, 1.0f));
-            ImGui::TextWrapped("%s", sPackageError.c_str());
-            ImGui::PopStyleColor();
-        }
-        if (!sPackageSuccess.empty())
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.3f, 1.0f));
-            ImGui::TextWrapped("%s", sPackageSuccess.c_str());
-            ImGui::PopStyleColor();
-        }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
-        // Buttons
-        bool closePopup = false;
-
-        bool canPackage = !sPackageAddonList.empty() &&
-                          sPackageSelectedAddon >= 0 &&
-                          sPackageSelectedAddon < (int)sPackageAddonList.size();
-
-        if (!canPackage)
-        {
-            ImGui::BeginDisabled();
-        }
-
-        if (ImGui::Button("Package", ImVec2(100, 0)))
-        {
-            NativeAddonManager* nam = NativeAddonManager::Get();
-            if (nam != nullptr && canPackage)
-            {
-                NativeAddonPackageOptions options;
-                options.mAddonId = sPackageAddonList[sPackageSelectedAddon];
-                options.mIncludeSource = sPackageIncludeSource;
-                options.mIncludeAssets = sPackageIncludeAssets;
-                options.mIncludeScripts = sPackageIncludeScripts;
-                options.mIncludeThumbnail = sPackageIncludeThumbnail;
-                options.mOutputPath = sPackageOutputPath;
-
-                std::string error;
-                if (nam->PackageNativeAddon(options, error))
-                {
-                    sPackageSuccess = "Addon packaged successfully! Check Packaged/ folder.";
-                    sPackageError.clear();
-                }
-                else
-                {
-                    sPackageError = error;
-                    sPackageSuccess.clear();
-                }
-            }
-        }
-
-        if (!canPackage)
-        {
-            ImGui::EndDisabled();
-        }
-
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(100, 0)))
-        {
-            closePopup = true;
-        }
-
-        if (IsKeyJustDown(KEY_ESCAPE))
-        {
-            closePopup = true;
-        }
-
-        if (closePopup)
-        {
-            sShowPackageNativeAddonDialog = false;
             ImGui::CloseCurrentPopup();
         }
 
@@ -4066,6 +3768,10 @@ static void DrawViewportPanel()
         ImGui::OpenPopup("DeveloperPopup");
 
     ImGui::SameLine();
+    if (ImGui::Button("Addons"))
+        ImGui::OpenPopup("AddonsPopup");
+
+    ImGui::SameLine();
     if (ImGui::Button("Extra"))
         ImGui::OpenPopup("ExtraPopup");
 
@@ -4628,42 +4334,6 @@ static void DrawViewportPanel()
 
         ImGui::Separator();
 
-        if (ImGui::Selectable("Create Native Addon..."))
-        {
-            sShowCreateNativeAddonDialog = true;
-            memset(sCreateAddonName, 0, sizeof(sCreateAddonName));
-            memset(sCreateAddonAuthor, 0, sizeof(sCreateAddonAuthor));
-            memset(sCreateAddonDescription, 0, sizeof(sCreateAddonDescription));
-            strncpy(sCreateAddonVersion, "1.0.0", sizeof(sCreateAddonVersion) - 1);
-            sCreateAddonTarget = 0;
-            sCreateAddonError.clear();
-            sCreateAddonSuccess.clear();
-        }
-
-        if (ImGui::Selectable("Package Native Addon..."))
-        {
-            sShowPackageNativeAddonDialog = true;
-            sPackageSelectedAddon = 0;
-            sPackageIncludeSource = true;
-            sPackageIncludeAssets = true;
-            sPackageIncludeScripts = true;
-            sPackageIncludeThumbnail = true;
-            memset(sPackageOutputPath, 0, sizeof(sPackageOutputPath));
-            sPackageError.clear();
-            sPackageSuccess.clear();
-
-            // Refresh addon list
-            sPackageAddonList.clear();
-            NativeAddonManager* nam = NativeAddonManager::Get();
-            if (nam != nullptr)
-            {
-                nam->DiscoverNativeAddons();
-                sPackageAddonList = nam->GetLocalPackageIds();
-            }
-        }
-
-        ImGui::Separator();
-
         // Draw plugin menu items for Developer menu
         EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
         if (hookMgr != nullptr)
@@ -4671,6 +4341,12 @@ static void DrawViewportPanel()
             hookMgr->DrawMenuItems("Developer");
         }
 
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("AddonsPopup"))
+    {
+        DrawAddonsPopupContent();
         ImGui::EndPopup();
     }
 
@@ -5628,8 +5304,7 @@ void EditorImguiDraw()
 
         DrawUnsavedCheck();
         DrawProjectUpgradeModal();
-        DrawCreateNativeAddonDialog();
-        DrawPackageNativeAddonDialog();
+        DrawAddonsDialogs();
 
         GetPreferencesWindow()->Draw();
         GetPackagingWindow()->Draw();

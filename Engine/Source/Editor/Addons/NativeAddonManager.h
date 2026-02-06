@@ -229,6 +229,21 @@ public:
     bool CreateNativeAddon(const NativeAddonCreateInfo& info, std::string& outError, std::string* outPath = nullptr);
 
     /**
+     * @brief Create a native addon at a custom target directory.
+     *
+     * Same as CreateNativeAddon() but creates the addon in the specified
+     * directory instead of the project's Packages/ folder.
+     *
+     * @param info Creation parameters
+     * @param targetDir Directory where the addon folder will be created
+     * @param outError Error message on failure
+     * @param outPath Output path to the created addon folder (optional)
+     * @return true if creation succeeded
+     */
+    bool CreateNativeAddonAtPath(const NativeAddonCreateInfo& info, const std::string& targetDir,
+                                  std::string& outError, std::string* outPath = nullptr);
+
+    /**
      * @brief Package a native addon for distribution.
      *
      * Creates a zip file containing the addon contents.
