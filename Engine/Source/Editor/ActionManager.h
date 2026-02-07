@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 
 #include "EngineTypes.h"
 #include "EditorTypes.h"
@@ -11,6 +12,7 @@
 #include "Nodes/3D/StaticMesh3d.h"
 
 class Node3D;
+class Mesh3D;
 class InstancedMesh3D;
 struct ActionSetInstanceColorsData;
 struct MeshInstanceData;
@@ -66,6 +68,26 @@ public:
     void EXE_UnlinkScene(Node* node);
     void EXE_SetInstanceColors(const std::vector<ActionSetInstanceColorsData>& data);
     void EXE_SetInstanceData(InstancedMesh3D* instMesh, int32_t startIndex, const std::vector<MeshInstanceData>& data);
+
+    /**
+     * @brief Replace selected nodes' mesh/material with an asset, or replace with scene instances.
+     * @param asset The asset to apply (StaticMesh, Material, or Scene).
+     * @param nodes The nodes to operate on.
+     */
+    void EXE_ReplaceSelectedWithAsset(Asset* asset, const std::vector<Node*>& nodes);
+
+    /**
+     * @brief Replace selected StaticMesh3D nodes with InstancedMesh3D nodes.
+     * @param nodes The selected nodes to convert.
+     * @param merge If true, group by mesh into one InstancedMesh3D each. If false, convert each node 1:1.
+     */
+    void EXE_ReplaceWithInstancedMesh(const std::vector<Node*>& nodes, bool merge);
+
+    /**
+     * @brief Split selected InstancedMesh3D nodes into individual StaticMesh3D nodes.
+     * @param nodes The selected nodes to split.
+     */
+    void EXE_ReplaceWithStaticMesh(const std::vector<Node*>& nodes);
 
     void ClearActionHistory();
     void ClearActionFuture();
@@ -319,4 +341,93 @@ protected:
 
     std::vector<MeshInstanceData> mData;
     std::vector<MeshInstanceData> mPrevData;
+};
+
+/**
+ * @brief Action to replace selected nodes' mesh or material with an asset, or replace with scene instances.
+ */
+class ActionReplaceWithAsset : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(ReplaceWithAsset);
+    ActionReplaceWithAsset(Asset* asset, const std::vector<Node*>& nodes);
+
+protected:
+
+    enum class ReplaceMode
+    {
+        StaticMesh,
+        Material,
+        Scene,
+        Invalid
+    };
+
+    AssetRef mAsset;
+    ReplaceMode mMode = ReplaceMode::Invalid;
+
+    // For StaticMesh mode
+    std::vector<StaticMesh3D*> mMeshNodes;
+    std::vector<StaticMeshRef> mPrevMeshes;
+
+    // For Material mode
+    std::vector<Mesh3D*> mMatNodes;
+    std::vector<MaterialRef> mPrevMaterials;
+
+    // For Scene mode
+    struct SceneReplaceEntry
+    {
+        NodePtr mOriginal;
+        NodePtr mParent;
+        int32_t mChildIndex = -1;
+        NodePtr mSpawnedNode;
+    };
+    std::vector<SceneReplaceEntry> mSceneEntries;
+};
+
+/**
+ * @brief Action to merge selected StaticMesh3D nodes into InstancedMesh3D nodes grouped by mesh.
+ */
+class ActionReplaceWithInstancedMesh : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(ReplaceWithInstancedMesh);
+    ActionReplaceWithInstancedMesh(const std::vector<Node*>& nodes, bool merge);
+
+protected:
+
+    struct GroupEntry
+    {
+        std::vector<NodePtr> mOriginalNodes;
+        std::vector<NodePtr> mOriginalParents;
+        std::vector<int32_t> mOriginalChildIndices;
+        NodePtr mInstancedNode;
+        NodePtr mInstancedParent;
+        int32_t mInstancedChildIndex = -1;
+    };
+
+    std::vector<GroupEntry> mGroups;
+    bool mFirstExecute = true;
+};
+
+/**
+ * @brief Action to split selected InstancedMesh3D nodes into individual StaticMesh3D nodes.
+ */
+class ActionReplaceWithStaticMesh : public Action
+{
+public:
+    DECLARE_ACTION_INTERFACE(ReplaceWithStaticMesh);
+    ActionReplaceWithStaticMesh(const std::vector<Node*>& nodes);
+
+protected:
+
+    struct SplitEntry
+    {
+        NodePtr mOriginalNode;
+        NodePtr mOriginalParent;
+        int32_t mOriginalChildIndex = -1;
+        std::vector<NodePtr> mCreatedNodes;
+    };
+
+    std::vector<SplitEntry> mEntries;
+    bool mFirstExecute = true;
 };

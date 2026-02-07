@@ -119,6 +119,9 @@ static bool sUnsavedModalActive = false;
 static std::vector<std::string> sSceneList;
 static int32_t sDevModeClicks = 0;
 
+static std::string sReplaceAssetInput;
+static std::vector<std::string> sReplaceAssetSuggestions;
+
 static bool IsBottomPaneVisible()
 {
     if (!GetEditorState()->mShowBottomPane) return false;
@@ -645,7 +648,7 @@ static void DrawUnsavedCheck()
     {
         ImGuiIO& io = ImGui::GetIO();
         ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(400,260));
+        ImGui::SetNextWindowSize(ImVec2(400,300));
     }
 
     if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
@@ -2461,6 +2464,67 @@ static void DrawScenePanel()
                 {
                     LogDebug("TODO: Implement Merge for static meshes.");
                 }
+                if (!inSubScene && ImGui::Selectable("Replace Selected With Asset", false, ImGuiSelectableFlags_DontClosePopups))
+                {
+                    sReplaceAssetInput = "";
+                    sReplaceAssetSuggestions.clear();
+
+                    // Populate suggestions from asset map
+                    std::unordered_map<std::string, AssetStub*>& assetMap = AssetManager::Get()->GetAssetMap();
+                    for (auto& pair : assetMap)
+                    {
+                        AssetStub* s = pair.second;
+                        if (s && (s->mType == StaticMesh::GetStaticType() ||
+                                  s->mType == MaterialLite::GetStaticType() ||
+                                  s->mType == MaterialBase::GetStaticType() ||
+                                  s->mType == MaterialInstance::GetStaticType() ||
+                                  s->mType == Scene::GetStaticType()))
+                        {
+                            sReplaceAssetSuggestions.push_back(s->mName);
+                        }
+                    }
+                    std::sort(sReplaceAssetSuggestions.begin(), sReplaceAssetSuggestions.end());
+
+                    ImGui::OpenPopup("Replace Selected With Asset");
+                }
+                {
+                    // Check selection flags for instanced/static mesh items
+                    const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
+                    bool hasSelectedStaticMeshes = false;
+                    bool hasSelectedInstancedMeshes = false;
+                    for (Node* n : selNodes)
+                    {
+                        if (n->As<StaticMesh3D>() && !n->As<InstancedMesh3D>()) hasSelectedStaticMeshes = true;
+                        if (n->As<InstancedMesh3D>()) hasSelectedInstancedMeshes = true;
+                    }
+
+                    if (!inSubScene && hasSelectedStaticMeshes &&
+                        ImGui::Selectable("Merge Selected Into Instanced Mesh"))
+                    {
+                        am->EXE_ReplaceWithInstancedMesh(selNodes, true);
+                    }
+                    if (!inSubScene && hasSelectedStaticMeshes &&
+                        ImGui::Selectable("Convert Selected To Instanced Mesh"))
+                    {
+                        am->EXE_ReplaceWithInstancedMesh(selNodes, false);
+                    }
+                    if (!inSubScene && hasSelectedInstancedMeshes &&
+                        ImGui::Selectable("Replace Selected With Static Mesh"))
+                    {
+                        am->EXE_ReplaceWithStaticMesh(selNodes);
+                    }
+                }
+
+                // Plugin/addon context menu items
+                ImGui::Separator();
+                {
+                    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+                    if (hookMgr)
+                    {
+                        hookMgr->DrawNodeContextItems();
+                    }
+                }
+
                 if (!nodeSceneLinked && !inSubScene && ImGui::BeginMenu("Import"))
                 {
                     DrawImportMenu(node);
@@ -2544,6 +2608,53 @@ static void DrawScenePanel()
                         }
 
                         ImGui::EndMenu();
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                if (ImGui::BeginPopup("Replace Selected With Asset"))
+                {
+                    ImGui::Text("Enter asset name:");
+                    bool inputEntered = ImGui::InputText("##ReplaceAsset", &sReplaceAssetInput, ImGuiInputTextFlags_EnterReturnsTrue);
+
+                    // Autocomplete dropdown
+                    auto filterFunc = [](const std::string& suggestion, const std::string& input) -> bool
+                    {
+                        if (input.empty()) return true;
+                        std::string upperSugg = suggestion;
+                        std::string upperInput = input;
+                        for (char& c : upperSugg) c = (char)toupper(c);
+                        for (char& c : upperInput) c = (char)toupper(c);
+                        return upperSugg.find(upperInput) != std::string::npos;
+                    };
+
+                    bool autocompleteSelected = DrawAutocompleteDropdown(
+                        "ReplaceAssetAutocomplete",
+                        sReplaceAssetInput,
+                        sReplaceAssetSuggestions,
+                        filterFunc,
+                        !sReplaceAssetInput.empty());
+
+                    if (inputEntered || autocompleteSelected)
+                    {
+                        Asset* asset = AssetManager::Get()->LoadAsset(sReplaceAssetInput);
+                        if (asset)
+                        {
+                            const std::vector<Node*>& selNodes = GetEditorState()->GetSelectedNodes();
+                            am->EXE_ReplaceSelectedWithAsset(asset, selNodes);
+                            ImGui::CloseCurrentPopup();
+                            closeContextPopup = true;
+                        }
+                        else
+                        {
+                            LogWarning("Could not load asset: %s", sReplaceAssetInput.c_str());
+                        }
+                    }
+
+                    if (ImGui::Button("Cancel"))
+                    {
+                        ImGui::CloseCurrentPopup();
                     }
 
                     ImGui::EndPopup();
@@ -3077,6 +3188,21 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
         }
 
         ImGui::EndPopup();
+    }
+
+    // Plugin/addon context menu items
+    ImGui::Separator();
+    {
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr && stub)
+        {
+            const char* assetTypeName = Asset::GetNameFromTypeId(stub->mType);
+            hookMgr->DrawAssetContextItems(assetTypeName ? assetTypeName : "");
+        }
+        else if (hookMgr)
+        {
+            hookMgr->DrawAssetContextItems("*");
+        }
     }
 
     if (closeContextPopup)

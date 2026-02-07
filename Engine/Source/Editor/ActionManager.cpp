@@ -29,6 +29,8 @@
 #include "Assets/SkeletalMesh.h"
 #include "Assets/SoundWave.h"
 #include "Assets/MaterialLite.h"
+#include "Assets/MaterialBase.h"
+#include "Assets/MaterialInstance.h"
 #include "Assets/Font.h"
 #include "AssetDir.h"
 #include "EmbeddedFile.h"
@@ -37,6 +39,7 @@
 #include "EditorImgui.h"
 #include "Log.h"
 
+#include "Nodes/3D/Mesh3d.h"
 #include "Nodes/3D/StaticMesh3d.h"
 #include "Nodes/3D/PointLight3d.h"
 #include "Nodes/3D/DirectionalLight3d.h"
@@ -3980,6 +3983,517 @@ void ActionSetInstanceData::Reverse()
             mInstMesh->AddInstanceData(mPrevData[i], mStartIndex + i);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// ActionReplaceWithAsset
+// ---------------------------------------------------------------------------
+
+ActionReplaceWithAsset::ActionReplaceWithAsset(Asset* asset, const std::vector<Node*>& nodes)
+{
+    OCT_ASSERT(asset != nullptr);
+    mAsset = asset;
+
+    TypeId assetType = asset->GetType();
+
+    if (assetType == StaticMesh::GetStaticType())
+    {
+        mMode = ReplaceMode::StaticMesh;
+        for (Node* n : nodes)
+        {
+            StaticMesh3D* sm = n->As<StaticMesh3D>();
+            if (sm)
+            {
+                mMeshNodes.push_back(sm);
+                mPrevMeshes.push_back(StaticMeshRef(sm->GetStaticMesh()));
+            }
+        }
+    }
+    else if (assetType == MaterialLite::GetStaticType() ||
+             assetType == MaterialBase::GetStaticType() ||
+             assetType == MaterialInstance::GetStaticType())
+    {
+        mMode = ReplaceMode::Material;
+        for (Node* n : nodes)
+        {
+            Mesh3D* mesh = n->As<Mesh3D>();
+            if (mesh)
+            {
+                mMatNodes.push_back(mesh);
+                mPrevMaterials.push_back(MaterialRef(mesh->GetMaterialOverride()));
+            }
+        }
+    }
+    else if (assetType == Scene::GetStaticType())
+    {
+        mMode = ReplaceMode::Scene;
+        for (Node* n : nodes)
+        {
+            Node3D* node3d = n->As<Node3D>();
+            if (node3d && node3d->GetParent())
+            {
+                SceneReplaceEntry entry;
+                entry.mOriginal = ResolvePtr(n);
+                entry.mParent = ResolvePtr(n->GetParent());
+                entry.mChildIndex = n->GetParent()->FindChildIndex(n);
+                mSceneEntries.push_back(entry);
+            }
+        }
+    }
+    else
+    {
+        LogWarning("ActionReplaceWithAsset: Unsupported asset type.");
+        mMode = ReplaceMode::Invalid;
+    }
+}
+
+void ActionReplaceWithAsset::Execute()
+{
+    Action::Execute();
+
+    switch (mMode)
+    {
+    case ReplaceMode::StaticMesh:
+    {
+        StaticMesh* mesh = mAsset.Get<StaticMesh>();
+        for (uint32_t i = 0; i < mMeshNodes.size(); ++i)
+        {
+            mMeshNodes[i]->SetStaticMesh(mesh);
+        }
+        break;
+    }
+    case ReplaceMode::Material:
+    {
+        Material* mat = mAsset.Get<Material>();
+        for (uint32_t i = 0; i < mMatNodes.size(); ++i)
+        {
+            mMatNodes[i]->SetMaterialOverride(mat);
+        }
+        break;
+    }
+    case ReplaceMode::Scene:
+    {
+        Scene* scene = mAsset.Get<Scene>();
+        if (scene == nullptr)
+            break;
+
+        for (uint32_t i = 0; i < mSceneEntries.size(); ++i)
+        {
+            SceneReplaceEntry& entry = mSceneEntries[i];
+
+            if (entry.mSpawnedNode == nullptr)
+            {
+                // First execute: spawn and position
+                NodePtr spawned = scene->Instantiate();
+                if (spawned == nullptr)
+                    continue;
+
+                Node3D* orig3d = entry.mOriginal->As<Node3D>();
+                Node3D* spawned3d = spawned->As<Node3D>();
+
+                entry.mParent->AddChild(spawned.Get(), entry.mChildIndex);
+
+                if (orig3d && spawned3d)
+                {
+                    spawned3d->SetWorldPosition(orig3d->GetWorldPosition());
+                    spawned3d->SetWorldRotation(orig3d->GetWorldRotationQuat());
+                    spawned3d->SetWorldScale(orig3d->GetWorldScale());
+                }
+
+                entry.mOriginal->Detach();
+                ActionManager::Get()->ExileNode(entry.mOriginal);
+                entry.mSpawnedNode = spawned;
+            }
+            else
+            {
+                // Re-execute: restore spawned, exile original
+                ActionManager::Get()->RestoreExiledNode(entry.mSpawnedNode);
+                entry.mParent->AddChild(entry.mSpawnedNode.Get(), entry.mChildIndex);
+
+                entry.mOriginal->Detach();
+                ActionManager::Get()->ExileNode(entry.mOriginal);
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void ActionReplaceWithAsset::Reverse()
+{
+    Action::Reverse();
+
+    switch (mMode)
+    {
+    case ReplaceMode::StaticMesh:
+    {
+        for (uint32_t i = 0; i < mMeshNodes.size(); ++i)
+        {
+            mMeshNodes[i]->SetStaticMesh(mPrevMeshes[i].Get<StaticMesh>());
+        }
+        break;
+    }
+    case ReplaceMode::Material:
+    {
+        for (uint32_t i = 0; i < mMatNodes.size(); ++i)
+        {
+            mMatNodes[i]->SetMaterialOverride(mPrevMaterials[i].Get<Material>());
+        }
+        break;
+    }
+    case ReplaceMode::Scene:
+    {
+        for (uint32_t i = 0; i < mSceneEntries.size(); ++i)
+        {
+            SceneReplaceEntry& entry = mSceneEntries[i];
+
+            if (entry.mSpawnedNode != nullptr)
+            {
+                entry.mSpawnedNode->Detach();
+                ActionManager::Get()->ExileNode(entry.mSpawnedNode);
+            }
+
+            ActionManager::Get()->RestoreExiledNode(entry.mOriginal);
+            entry.mParent->AddChild(entry.mOriginal.Get(), entry.mChildIndex);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ActionReplaceWithInstancedMesh
+// ---------------------------------------------------------------------------
+
+ActionReplaceWithInstancedMesh::ActionReplaceWithInstancedMesh(const std::vector<Node*>& nodes, bool merge)
+{
+    // Collect valid StaticMesh3D nodes (excluding InstancedMesh3D)
+    std::vector<StaticMesh3D*> validNodes;
+    for (Node* n : nodes)
+    {
+        StaticMesh3D* sm = n->As<StaticMesh3D>();
+        if (sm && !sm->IsInstancedMesh3D() && sm->GetStaticMesh() != nullptr)
+        {
+            validNodes.push_back(sm);
+        }
+    }
+
+    if (merge)
+    {
+        // Group by mesh pointer: all nodes sharing a mesh become one InstancedMesh3D
+        std::map<StaticMesh*, std::vector<StaticMesh3D*>> groups;
+        for (StaticMesh3D* sm : validNodes)
+        {
+            groups[sm->GetStaticMesh()].push_back(sm);
+        }
+
+        for (auto& pair : groups)
+        {
+            GroupEntry group;
+            StaticMesh3D* firstNode = pair.second[0];
+
+            for (StaticMesh3D* sm : pair.second)
+            {
+                group.mOriginalNodes.push_back(ResolvePtr(sm));
+                group.mOriginalParents.push_back(ResolvePtr(sm->GetParent()));
+                group.mOriginalChildIndices.push_back(
+                    sm->GetParent() ? sm->GetParent()->FindChildIndex(sm) : -1);
+            }
+
+            group.mInstancedParent = ResolvePtr(firstNode->GetParent());
+            group.mInstancedChildIndex = firstNode->GetParent()
+                ? firstNode->GetParent()->FindChildIndex(firstNode)
+                : -1;
+
+            mGroups.push_back(group);
+        }
+    }
+    else
+    {
+        // 1:1 conversion: each StaticMesh3D becomes its own InstancedMesh3D
+        for (StaticMesh3D* sm : validNodes)
+        {
+            GroupEntry group;
+            group.mOriginalNodes.push_back(ResolvePtr(sm));
+            group.mOriginalParents.push_back(ResolvePtr(sm->GetParent()));
+            group.mOriginalChildIndices.push_back(
+                sm->GetParent() ? sm->GetParent()->FindChildIndex(sm) : -1);
+
+            group.mInstancedParent = ResolvePtr(sm->GetParent());
+            group.mInstancedChildIndex = sm->GetParent()
+                ? sm->GetParent()->FindChildIndex(sm)
+                : -1;
+
+            mGroups.push_back(group);
+        }
+    }
+}
+
+void ActionReplaceWithInstancedMesh::Execute()
+{
+    Action::Execute();
+
+    if (mFirstExecute)
+    {
+        mFirstExecute = false;
+
+        for (GroupEntry& group : mGroups)
+        {
+            // Create InstancedMesh3D
+            NodePtr instNode = Node::Construct(InstancedMesh3D::GetStaticType());
+            InstancedMesh3D* inst = instNode->As<InstancedMesh3D>();
+
+            StaticMesh3D* firstSrc = group.mOriginalNodes[0]->As<StaticMesh3D>();
+            inst->SetStaticMesh(firstSrc->GetStaticMesh());
+            inst->SetMaterialOverride(firstSrc->GetMaterialOverride());
+            inst->SetName(firstSrc->GetStaticMesh()->GetName() + "_Instanced");
+
+            // Populate instance data from each source node
+            for (uint32_t i = 0; i < group.mOriginalNodes.size(); ++i)
+            {
+                Node3D* src3d = group.mOriginalNodes[i]->As<Node3D>();
+                if (src3d)
+                {
+                    MeshInstanceData data;
+                    data.mPosition = src3d->GetPosition();
+                    data.mRotation = src3d->GetWorldRotationEuler();
+                    data.mScale = src3d->GetWorldScale();
+                    inst->AddInstanceData(data);
+                }
+            }
+
+            // Attach to parent
+            if (group.mInstancedParent != nullptr)
+            {
+                group.mInstancedParent->AddChild(instNode.Get(), group.mInstancedChildIndex);
+            }
+
+            group.mInstancedNode = instNode;
+
+            // Exile all original nodes
+            for (uint32_t i = 0; i < group.mOriginalNodes.size(); ++i)
+            {
+                group.mOriginalNodes[i]->Detach();
+                ActionManager::Get()->ExileNode(group.mOriginalNodes[i]);
+            }
+        }
+    }
+    else
+    {
+        // Re-execute: restore instanced nodes, exile originals
+        for (GroupEntry& group : mGroups)
+        {
+            ActionManager::Get()->RestoreExiledNode(group.mInstancedNode);
+            if (group.mInstancedParent != nullptr)
+            {
+                group.mInstancedParent->AddChild(group.mInstancedNode.Get(), group.mInstancedChildIndex);
+            }
+
+            for (uint32_t i = 0; i < group.mOriginalNodes.size(); ++i)
+            {
+                group.mOriginalNodes[i]->Detach();
+                ActionManager::Get()->ExileNode(group.mOriginalNodes[i]);
+            }
+        }
+    }
+
+    // Select the first instanced mesh
+    if (!mGroups.empty() && mGroups[0].mInstancedNode != nullptr)
+    {
+        GetEditorState()->SetSelectedNode(mGroups[0].mInstancedNode.Get());
+    }
+}
+
+void ActionReplaceWithInstancedMesh::Reverse()
+{
+    Action::Reverse();
+
+    for (GroupEntry& group : mGroups)
+    {
+        // Remove instanced node
+        if (group.mInstancedNode != nullptr)
+        {
+            group.mInstancedNode->Detach();
+            ActionManager::Get()->ExileNode(group.mInstancedNode);
+        }
+
+        // Restore originals
+        for (uint32_t i = 0; i < group.mOriginalNodes.size(); ++i)
+        {
+            ActionManager::Get()->RestoreExiledNode(group.mOriginalNodes[i]);
+            if (group.mOriginalParents[i] != nullptr)
+            {
+                group.mOriginalParents[i]->AddChild(
+                    group.mOriginalNodes[i].Get(),
+                    group.mOriginalChildIndices[i]);
+            }
+        }
+    }
+
+    // Select first original node
+    if (!mGroups.empty() && !mGroups[0].mOriginalNodes.empty())
+    {
+        GetEditorState()->SetSelectedNode(mGroups[0].mOriginalNodes[0].Get());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ActionReplaceWithStaticMesh
+// ---------------------------------------------------------------------------
+
+ActionReplaceWithStaticMesh::ActionReplaceWithStaticMesh(const std::vector<Node*>& nodes)
+{
+    for (Node* n : nodes)
+    {
+        InstancedMesh3D* inst = n->As<InstancedMesh3D>();
+        if (inst && inst->GetNumInstances() > 0)
+        {
+            SplitEntry entry;
+            entry.mOriginalNode = ResolvePtr(n);
+            entry.mOriginalParent = ResolvePtr(n->GetParent());
+            entry.mOriginalChildIndex = n->GetParent()
+                ? n->GetParent()->FindChildIndex(n)
+                : -1;
+            mEntries.push_back(entry);
+        }
+    }
+}
+
+void ActionReplaceWithStaticMesh::Execute()
+{
+    Action::Execute();
+
+    if (mFirstExecute)
+    {
+        mFirstExecute = false;
+
+        for (SplitEntry& entry : mEntries)
+        {
+            InstancedMesh3D* inst = entry.mOriginalNode->As<InstancedMesh3D>();
+            StaticMesh* mesh = inst->GetStaticMesh();
+            Material* mat = inst->GetMaterialOverride();
+
+            for (uint32_t i = 0; i < inst->GetNumInstances(); ++i)
+            {
+                const MeshInstanceData& instData = inst->GetInstanceData(i);
+
+                NodePtr newNode = Node::Construct(StaticMesh3D::GetStaticType());
+                StaticMesh3D* sm = newNode->As<StaticMesh3D>();
+                sm->SetStaticMesh(mesh);
+                sm->SetMaterialOverride(mat);
+                sm->SetName(mesh ? mesh->GetName() : "StaticMesh3D");
+
+                // Compute world transform from instance data
+                // InstancedMesh3D stores world-space transforms in instance data
+                sm->SetWorldPosition(instData.mPosition);
+                sm->SetWorldRotation(instData.mRotation);
+                sm->SetWorldScale(instData.mScale);
+
+                if (entry.mOriginalParent != nullptr)
+                {
+                    entry.mOriginalParent->AddChild(newNode.Get());
+                }
+
+                entry.mCreatedNodes.push_back(newNode);
+            }
+
+            // Exile original
+            entry.mOriginalNode->Detach();
+            ActionManager::Get()->ExileNode(entry.mOriginalNode);
+        }
+    }
+    else
+    {
+        // Re-execute: restore created, exile originals
+        for (SplitEntry& entry : mEntries)
+        {
+            for (uint32_t i = 0; i < entry.mCreatedNodes.size(); ++i)
+            {
+                ActionManager::Get()->RestoreExiledNode(entry.mCreatedNodes[i]);
+                if (entry.mOriginalParent != nullptr)
+                {
+                    entry.mOriginalParent->AddChild(entry.mCreatedNodes[i].Get());
+                }
+            }
+
+            entry.mOriginalNode->Detach();
+            ActionManager::Get()->ExileNode(entry.mOriginalNode);
+        }
+    }
+
+    // Select first created node
+    if (!mEntries.empty() && !mEntries[0].mCreatedNodes.empty())
+    {
+        GetEditorState()->SetSelectedNode(mEntries[0].mCreatedNodes[0].Get());
+    }
+}
+
+void ActionReplaceWithStaticMesh::Reverse()
+{
+    Action::Reverse();
+
+    for (SplitEntry& entry : mEntries)
+    {
+        // Remove created nodes
+        for (uint32_t i = 0; i < entry.mCreatedNodes.size(); ++i)
+        {
+            entry.mCreatedNodes[i]->Detach();
+            ActionManager::Get()->ExileNode(entry.mCreatedNodes[i]);
+        }
+
+        // Restore original
+        ActionManager::Get()->RestoreExiledNode(entry.mOriginalNode);
+        if (entry.mOriginalParent != nullptr)
+        {
+            entry.mOriginalParent->AddChild(
+                entry.mOriginalNode.Get(),
+                entry.mOriginalChildIndex);
+        }
+    }
+
+    // Select first original
+    if (!mEntries.empty())
+    {
+        GetEditorState()->SetSelectedNode(mEntries[0].mOriginalNode.Get());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EXE_ methods for replace actions
+// ---------------------------------------------------------------------------
+
+void ActionManager::EXE_ReplaceSelectedWithAsset(Asset* asset, const std::vector<Node*>& nodes)
+{
+    if (asset == nullptr || nodes.empty())
+    {
+        LogWarning("EXE_ReplaceSelectedWithAsset: Invalid asset or empty node list.");
+        return;
+    }
+
+    ActionReplaceWithAsset* action = new ActionReplaceWithAsset(asset, nodes);
+    ActionManager::Get()->ExecuteAction(action);
+}
+
+void ActionManager::EXE_ReplaceWithInstancedMesh(const std::vector<Node*>& nodes, bool merge)
+{
+    if (nodes.empty())
+        return;
+
+    ActionReplaceWithInstancedMesh* action = new ActionReplaceWithInstancedMesh(nodes, merge);
+    ActionManager::Get()->ExecuteAction(action);
+}
+
+void ActionManager::EXE_ReplaceWithStaticMesh(const std::vector<Node*>& nodes)
+{
+    if (nodes.empty())
+        return;
+
+    ActionReplaceWithStaticMesh* action = new ActionReplaceWithStaticMesh(nodes);
+    ActionManager::Get()->ExecuteAction(action);
 }
 
 // Static storage for assets needing upgrade (used in both headless and editor modes)
