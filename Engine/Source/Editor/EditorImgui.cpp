@@ -4371,12 +4371,7 @@ static void DrawViewportPanel()
                     sceneName = sceneName.substr(3);
                 }
                 sReimportSceneOptions.mSceneName = sceneName;
-
-                // Navigate to the scene's parent directory so ImportScene saves there
-                if (reimportStub->mDirectory && reimportStub->mDirectory->mParentDir)
-                {
-                    GetEditorState()->SetAssetDirectory(reimportStub->mDirectory->mParentDir, true);
-                }
+                sReimportSceneOptions.mReimportSceneStub = reimportStub;
 
                 am->ImportScene(sReimportSceneOptions);
             }

@@ -4,6 +4,8 @@
 
 #include "EngineTypes.h"
 
+struct AssetStub;
+
 enum class OctaveMeshType { Node3D, StaticMesh, InstancedMesh };
 
 struct OctaveNodeExtras
@@ -32,6 +34,7 @@ struct SceneImportOptions
     bool mApplyGltfExtras = true;
     ShadingModel mDefaultShadingModel = ShadingModel::Lit;
     VertexColorMode mDefaultVertexColorMode = VertexColorMode::None;
+    AssetStub* mReimportSceneStub = nullptr;  // Non-null = reimport mode
 };
 
 struct CameraImportOptions

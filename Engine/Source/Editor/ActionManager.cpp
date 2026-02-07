@@ -16,6 +16,7 @@
 #include <string>
 #include <functional>
 #include <algorithm>
+#include <fstream>
 
 #include "Log.h"
 #include "EditorConstants.h"
@@ -3063,11 +3064,21 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 }
             }
 
+            bool isReimport = (options.mReimportSceneStub != nullptr);
+
             // Get the current directory in the asset panel (all assets will be saved there)
             AssetDir* curDir = GetEditorState()->GetAssetDirectory();
 
             const std::string& sceneName = options.mSceneName;
-            AssetDir* sceneDir = curDir->CreateSubdirectory(sceneName);
+            AssetDir* sceneDir = nullptr;
+            if (isReimport)
+            {
+                sceneDir = options.mReimportSceneStub->mDirectory;
+            }
+            else
+            {
+                sceneDir = curDir->CreateSubdirectory(sceneName);
+            }
 
             std::string fullSceneName = "SC_" + sceneName;
             for (uint32_t i = 0; i < GetEditorState()->mEditScenes.size(); ++i)
@@ -3089,8 +3100,11 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 return;
             }
 
-            LogDebug("Purging scene dir: %s (%zu assets)", sceneDir->mPath.c_str(), sceneDir->mAssetStubs.size());
-            sceneDir->Purge();
+            if (!isReimport)
+            {
+                LogDebug("Purging scene dir: %s (%zu assets)", sceneDir->mPath.c_str(), sceneDir->mAssetStubs.size());
+                sceneDir->Purge();
+            }
             GetEditorState()->SetAssetDirectory(sceneDir, true);
 
             SharedPtr<Node3D> rootNode = Node::Construct<Node3D>();
@@ -3163,8 +3177,21 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 MaterialLite* newMaterial = nullptr;
                 if (options.mImportMaterials)
                 {
-                    materialStub = EditorAddUniqueAsset(materialName.c_str(), sceneDir, MaterialLite::GetStaticType(), true);
-                    newMaterial = static_cast<MaterialLite*>(materialStub->mAsset);
+                    if (isReimport)
+                    {
+                        AssetStub* existingStub = AssetManager::Get()->GetAssetStub(materialName);
+                        if (existingStub && existingStub->mType == MaterialLite::GetStaticType())
+                        {
+                            materialStub = existingStub;
+                            if (!existingStub->mAsset) AssetManager::Get()->LoadAsset(*existingStub);
+                            newMaterial = static_cast<MaterialLite*>(existingStub->mAsset);
+                        }
+                    }
+                    if (materialStub == nullptr)
+                    {
+                        materialStub = EditorAddUniqueAsset(materialName.c_str(), sceneDir, MaterialLite::GetStaticType(), true);
+                        newMaterial = static_cast<MaterialLite*>(materialStub->mAsset);
+                    }
                     newMaterial->SetShadingModel(options.mDefaultShadingModel);
                     newMaterial->SetVertexColorMode(options.mDefaultVertexColorMode);
                 }
@@ -3197,11 +3224,18 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
                             bool importTexture = false;
 
-                            std::string assetName = EditorGetAssetNameFromPath(texturePath);
-                            if (assetName.size() >= 2 && (strncmp(assetName.c_str(), "T_", 2) == 0))
+                            std::string assetName;
+                            if (texturePath.size() > 1 && texturePath[0] == '*')
                             {
-                                // Remove the T_ prefix, reapply later with sceneName.
-                                assetName = assetName.substr(2);
+                                assetName = "Texture" + texturePath.substr(1);
+                            }
+                            else
+                            {
+                                assetName = EditorGetAssetNameFromPath(texturePath);
+                                if (assetName.size() >= 2 && (strncmp(assetName.c_str(), "T_", 2) == 0))
+                                {
+                                    assetName = assetName.substr(2);
+                                }
                             }
 
                             assetName = options.mPrefix + assetName;
@@ -3215,10 +3249,49 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                                 textureToAssign = LoadAsset<Texture>(assetName);
                             }
 
-                            bool embeddedTexturePath = (texturePath.size() > 1 && texturePath[0] == '*');
-                            if (textureToAssign == nullptr && !embeddedTexturePath)
+                            if (isReimport && textureToAssign == nullptr)
                             {
-                                Asset* importedAsset = ImportAsset(importDir + texturePath);
+                                textureToAssign = LoadAsset<Texture>(assetName);
+                            }
+
+                            bool embeddedTexturePath = (texturePath.size() > 1 && texturePath[0] == '*');
+
+                            // Resolve the texture source to a file path
+                            std::string resolvedTexturePath;
+                            bool tempFileCreated = false;
+
+                            if (textureToAssign == nullptr && embeddedTexturePath)
+                            {
+                                // GLB embedded texture — extract to a temp file for import
+                                int embIndex = std::atoi(texturePath.c_str() + 1);
+                                if (embIndex >= 0 && (uint32_t)embIndex < scene->mNumTextures)
+                                {
+                                    aiTexture* embTex = scene->mTextures[embIndex];
+                                    if (embTex->mHeight == 0)
+                                    {
+                                        // Compressed format (PNG/JPG) — mWidth is the data size in bytes
+                                        std::string ext = ".";
+                                        ext += embTex->achFormatHint;
+                                        resolvedTexturePath = importDir + "__octave_emb_" + std::to_string(embIndex) + ext;
+
+                                        std::ofstream tmpFile(resolvedTexturePath, std::ios::binary);
+                                        if (tmpFile)
+                                        {
+                                            tmpFile.write(reinterpret_cast<const char*>(embTex->pcData), embTex->mWidth);
+                                            tmpFile.close();
+                                            tempFileCreated = true;
+                                        }
+                                    }
+                                }
+                            }
+                            else if (textureToAssign == nullptr)
+                            {
+                                resolvedTexturePath = importDir + texturePath;
+                            }
+
+                            if (textureToAssign == nullptr && !resolvedTexturePath.empty())
+                            {
+                                Asset* importedAsset = ImportAsset(resolvedTexturePath);
                                 OCT_ASSERT(importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType());
 
                                 if (importedAsset == nullptr || importedAsset->GetType() == Texture::GetStaticType())
@@ -3231,6 +3304,11 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                                     AssetManager::Get()->RenameAsset(importedAsset, assetName);
                                     AssetManager::Get()->SaveAsset(assetName);
                                 }
+                            }
+
+                            if (tempFileCreated)
+                            {
+                                std::remove(resolvedTexturePath.c_str());
                             }
 
                             if (textureToAssign != nullptr)
@@ -3428,19 +3506,40 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             aiNode* node = scene->mRootNode;
             SpawnAiNode(node, rootNode.Get(), glm::mat4(1), meshList, options, extrasMap);
 
-            AssetStub* sceneStub = EditorAddUniqueAsset(fullSceneName.c_str(), sceneDir, Scene::GetStaticType(), true);
-            Scene* newScene = sceneStub->mAsset ? sceneStub->mAsset->As<Scene>() : nullptr;
-
-            if (newScene)
+            if (isReimport)
             {
-                newScene->Capture(rootNode.Get());
-                AssetManager::Get()->SaveAsset(*sceneStub);
-
-                GetEditorState()->OpenEditScene(newScene);
+                if (!options.mReimportSceneStub->mAsset)
+                {
+                    AssetManager::Get()->LoadAsset(*options.mReimportSceneStub);
+                }
+                Scene* existingScene = options.mReimportSceneStub->mAsset ?
+                    options.mReimportSceneStub->mAsset->As<Scene>() : nullptr;
+                if (existingScene)
+                {
+                    existingScene->Capture(rootNode.Get());
+                    AssetManager::Get()->SaveAsset(*options.mReimportSceneStub);
+                    GetEditorState()->OpenEditScene(existingScene);
+                }
+                else
+                {
+                    LogError("Failed to access existing scene asset for reimport");
+                }
             }
             else
             {
-                LogError("Failed to create new scene asset for scene import");
+                AssetStub* sceneStub = EditorAddUniqueAsset(fullSceneName.c_str(), sceneDir, Scene::GetStaticType(), true);
+                Scene* newScene = sceneStub->mAsset ? sceneStub->mAsset->As<Scene>() : nullptr;
+
+                if (newScene)
+                {
+                    newScene->Capture(rootNode.Get());
+                    AssetManager::Get()->SaveAsset(*sceneStub);
+                    GetEditorState()->OpenEditScene(newScene);
+                }
+                else
+                {
+                    LogError("Failed to create new scene asset for scene import");
+                }
             }
         }
         else
