@@ -110,6 +110,7 @@ static bool sFileBrowserNeedsRefresh = false;
 static bool sObjectTabOpen = false;
 
 static SceneImportOptions sSceneImportOptions;
+static SceneImportOptions sReimportSceneOptions;
 static CameraImportOptions sCameraImportOptions;
 
 static std::vector<AssetStub*> sUnsavedAssets;
@@ -2914,6 +2915,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
             GetMutableEngineConfig()->mDefaultEditorScene = stub->mName;
             WriteEngineConfig();
         }
+
+        if (ImGui::Selectable("Reimport Scene"))
+        {
+            actMan->BeginReimportScene(stub);
+        }
     }
 
     if (canInstantiate && ImGui::Selectable("Instantiate"))
@@ -4290,6 +4296,7 @@ static void DrawViewportPanel()
         ImGui::Checkbox("Import Lights", &sSceneImportOptions.mImportLights);
         ImGui::Checkbox("Import Cameras", &sSceneImportOptions.mImportCameras);
         ImGui::Checkbox("Enable Collision", &sSceneImportOptions.mEnableCollision);
+        ImGui::Checkbox("Apply glTF Extras", &sSceneImportOptions.mApplyGltfExtras);
 
         int32_t shadingModelCount = int32_t(ShadingModel::Count);
         ImGui::Combo("Shading Model", (int*)&(sSceneImportOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
@@ -4314,6 +4321,81 @@ static void DrawViewportPanel()
         ImGui::EndPopup();
     }
 
+
+    // Reimport Scene popup
+    if (!ImGui::IsPopupOpen("Reimport Scene") &&
+        GetEditorState()->mPendingReimportSceneStub != nullptr &&
+        GetEditorState()->mPendingReimportScenePath != "")
+    {
+        sReimportSceneOptions = SceneImportOptions();
+        sReimportSceneOptions.mFilePath = GetEditorState()->mPendingReimportScenePath;
+        ImGui::OpenPopup("Reimport Scene");
+    }
+
+    if (ImGui::IsPopupOpen("Reimport Scene"))
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    }
+
+    if (ImGui::BeginPopupModal("Reimport Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove))
+    {
+        AssetStub* reimportStub = GetEditorState()->mPendingReimportSceneStub;
+
+        ImGui::Text("File: %s", GetEditorState()->mPendingReimportScenePath.c_str());
+        ImGui::Text("Scene: %s", reimportStub ? reimportStub->mName.c_str() : "");
+        ImGui::Separator();
+
+        ImGui::InputText("Prefix", &sReimportSceneOptions.mPrefix);
+        ImGui::Checkbox("Import Meshes", &sReimportSceneOptions.mImportMeshes);
+        ImGui::Checkbox("Import Materials", &sReimportSceneOptions.mImportMaterials);
+        ImGui::Checkbox("Import Textures", &sReimportSceneOptions.mImportTextures);
+        ImGui::Checkbox("Import Lights", &sReimportSceneOptions.mImportLights);
+        ImGui::Checkbox("Import Cameras", &sReimportSceneOptions.mImportCameras);
+        ImGui::Checkbox("Enable Collision", &sReimportSceneOptions.mEnableCollision);
+
+        int32_t shadingModelCount = int32_t(ShadingModel::Count);
+        ImGui::Combo("Shading Model", (int*)&(sReimportSceneOptions.mDefaultShadingModel), gShadingModelStrings, shadingModelCount);
+
+        int32_t vertColorMode = int32_t(VertexColorMode::Count);
+        ImGui::Combo("Vertex Color Mode", (int*)&(sReimportSceneOptions.mDefaultVertexColorMode), gVertexColorModeStrings, vertColorMode);
+
+        if (ImGui::Button("Reimport"))
+        {
+            if (reimportStub != nullptr)
+            {
+                // Derive scene name from the stub name (strip SC_ prefix if present)
+                std::string sceneName = reimportStub->mName;
+                if (sceneName.size() > 3 && sceneName.substr(0, 3) == "SC_")
+                {
+                    sceneName = sceneName.substr(3);
+                }
+                sReimportSceneOptions.mSceneName = sceneName;
+
+                // Navigate to the scene's parent directory so ImportScene saves there
+                if (reimportStub->mDirectory && reimportStub->mDirectory->mParentDir)
+                {
+                    GetEditorState()->SetAssetDirectory(reimportStub->mDirectory->mParentDir, true);
+                }
+
+                am->ImportScene(sReimportSceneOptions);
+            }
+
+            GetEditorState()->mPendingReimportSceneStub = nullptr;
+            GetEditorState()->mPendingReimportScenePath = "";
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            GetEditorState()->mPendingReimportSceneStub = nullptr;
+            GetEditorState()->mPendingReimportScenePath = "";
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
 
     if (!ImGui::IsPopupOpen("Import Camera") && GetEditorState()->mIOAssetPath != "")
     {

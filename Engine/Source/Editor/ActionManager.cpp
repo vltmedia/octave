@@ -8,6 +8,7 @@
 #endif
 
 #include <stdint.h>
+#include <cstdlib>
 
 #include <vector>
 #include <unordered_map>
@@ -60,6 +61,9 @@
 #include "Addons/NativeAddonManager.h"
 #include "Addons/AddonManager.h"
 #include "EditorUIHookManager.h"
+
+#include "Stream.h"
+#include "document.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -2395,33 +2399,354 @@ static void ConvertFileToByteString(
     outString += "\n};\n\n";
 }
 
-static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransform, const std::vector<StaticMesh*>& meshList, const SceneImportOptions& options)
+static void ParseGltfExtrasFromDoc(const rapidjson::Document& doc, std::unordered_map<std::string, OctaveNodeExtras>& result)
+{
+    if (!doc.HasMember("nodes") || !doc["nodes"].IsArray())
+    {
+        return;
+    }
+
+    const rapidjson::Value& nodes = doc["nodes"];
+    for (rapidjson::SizeType i = 0; i < nodes.Size(); ++i)
+    {
+        const rapidjson::Value& node = nodes[i];
+        if (!node.HasMember("name") || !node["name"].IsString())
+            continue;
+        if (!node.HasMember("extras") || !node["extras"].IsObject())
+            continue;
+
+        std::string nodeName = node["name"].GetString();
+        const rapidjson::Value& extras = node["extras"];
+
+        OctaveNodeExtras data;
+        bool hasOctaveData = false;
+
+        // New mesh_type string property
+        if (extras.HasMember("mesh_type") && extras["mesh_type"].IsString())
+        {
+            std::string mt = extras["mesh_type"].GetString();
+            if (mt == "Node3D")
+                data.mMeshType = OctaveMeshType::Node3D;
+            else if (mt == "InstancedMesh")
+                data.mMeshType = OctaveMeshType::InstancedMesh;
+            else
+                data.mMeshType = OctaveMeshType::StaticMesh;
+            hasOctaveData = true;
+        }
+        else
+        {
+            // Backward compat: check old instance_mesh / static_mesh bools
+            bool instanceMesh = false;
+            bool hasLegacy = false;
+
+            if (extras.HasMember("instance_mesh") && extras["instance_mesh"].IsBool())
+            {
+                instanceMesh = extras["instance_mesh"].GetBool();
+                hasLegacy = true;
+            }
+            else if (extras.HasMember("instance_mesh") && extras["instance_mesh"].IsInt())
+            {
+                instanceMesh = (extras["instance_mesh"].GetInt() != 0);
+                hasLegacy = true;
+            }
+
+            if (extras.HasMember("static_mesh") && extras["static_mesh"].IsBool())
+            {
+                hasLegacy = true;
+            }
+            else if (extras.HasMember("static_mesh") && extras["static_mesh"].IsInt())
+            {
+                hasLegacy = true;
+            }
+
+            if (hasLegacy)
+            {
+                data.mMeshType = instanceMesh ? OctaveMeshType::InstancedMesh : OctaveMeshType::StaticMesh;
+                hasOctaveData = true;
+            }
+        }
+
+        if (extras.HasMember("octave_asset") && extras["octave_asset"].IsString())
+        {
+            data.mAssetName = extras["octave_asset"].GetString();
+            if (!data.mAssetName.empty())
+                hasOctaveData = true;
+        }
+
+        if (extras.HasMember("octave_asset_uuid") && extras["octave_asset_uuid"].IsString())
+        {
+            data.mAssetUuid = strtoull(extras["octave_asset_uuid"].GetString(), nullptr, 10);
+            if (data.mAssetUuid != 0)
+                hasOctaveData = true;
+        }
+
+        if (extras.HasMember("octave_script") && extras["octave_script"].IsString())
+        {
+            data.mScriptPath = extras["octave_script"].GetString();
+            if (!data.mScriptPath.empty())
+                hasOctaveData = true;
+        }
+
+        if (extras.HasMember("octave_main_camera") && extras["octave_main_camera"].IsBool())
+        {
+            data.mMainCamera = extras["octave_main_camera"].GetBool();
+            if (data.mMainCamera)
+                hasOctaveData = true;
+        }
+        else if (extras.HasMember("octave_main_camera") && extras["octave_main_camera"].IsInt())
+        {
+            data.mMainCamera = (extras["octave_main_camera"].GetInt() != 0);
+            if (data.mMainCamera)
+                hasOctaveData = true;
+        }
+
+        if (hasOctaveData)
+        {
+            result[nodeName] = data;
+        }
+    }
+}
+
+static std::unordered_map<std::string, OctaveNodeExtras> ParseGltfExtras(const std::string& filePath)
+{
+    std::unordered_map<std::string, OctaveNodeExtras> result;
+
+    int32_t dotIndex = int32_t(filePath.find_last_of('.'));
+    std::string extension = filePath.substr(dotIndex, filePath.size() - dotIndex);
+
+    Stream stream;
+    if (!stream.ReadFile(filePath.c_str(), false))
+    {
+        LogWarning("ParseGltfExtras: Failed to read file %s", filePath.c_str());
+        return result;
+    }
+
+    std::string jsonStr;
+
+    if (extension == ".glb")
+    {
+        // GLB format: 12-byte header, then chunks
+        // Header: magic(4) + version(4) + length(4)
+        // Each chunk: chunkLength(4) + chunkType(4) + chunkData(chunkLength)
+        // First chunk is JSON (type 0x4E4F534A)
+        const char* rawData = stream.GetData();
+        uint32_t fileSize = stream.GetSize();
+
+        if (fileSize < 20) // 12 header + 8 chunk header minimum
+        {
+            LogWarning("ParseGltfExtras: GLB file too small %s", filePath.c_str());
+            return result;
+        }
+
+        uint32_t jsonChunkLength;
+        memcpy(&jsonChunkLength, rawData + 12, sizeof(uint32_t));
+
+        uint32_t jsonChunkType;
+        memcpy(&jsonChunkType, rawData + 16, sizeof(uint32_t));
+
+        if (jsonChunkType != 0x4E4F534A) // "JSON" in little-endian
+        {
+            LogWarning("ParseGltfExtras: First GLB chunk is not JSON in %s", filePath.c_str());
+            return result;
+        }
+
+        if (20 + jsonChunkLength > fileSize)
+        {
+            LogWarning("ParseGltfExtras: GLB JSON chunk exceeds file size in %s", filePath.c_str());
+            return result;
+        }
+
+        jsonStr.assign(rawData + 20, jsonChunkLength);
+    }
+    else
+    {
+        // .gltf text JSON
+        jsonStr.assign(stream.GetData(), stream.GetSize());
+    }
+
+    rapidjson::Document doc;
+    doc.Parse(jsonStr.c_str());
+
+    if (doc.HasParseError() || !doc.IsObject())
+    {
+        LogWarning("ParseGltfExtras: Failed to parse JSON from %s", filePath.c_str());
+        return result;
+    }
+
+    ParseGltfExtrasFromDoc(doc, result);
+
+    return result;
+}
+
+static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransform, const std::vector<StaticMesh*>& meshList, const SceneImportOptions& options, const std::unordered_map<std::string, OctaveNodeExtras>& extrasMap)
 {
     if (node == nullptr || root == nullptr)
         return;
 
-    World* world = GetWorld(0);
-
     glm::mat4 transform = parentTransform * glm::transpose(glm::make_mat4(&node->mTransformation.a1));
 
-    for (uint32_t i = 0; i < node->mNumMeshes; ++i)
-    {
-        uint32_t meshIndex = node->mMeshes[i];
-        StaticMesh3D* newMesh = root->CreateChild<StaticMesh3D>();
+    std::string nodeName = node->mName.C_Str();
 
-        newMesh->SetStaticMesh(meshList[meshIndex]);
-        newMesh->SetUseTriangleCollision(meshList[meshIndex]->IsTriangleCollisionMeshEnabled());
-        newMesh->SetTransform(transform);
-        newMesh->SetName(/*options.mPrefix + */node->mName.C_Str());
-        newMesh->EnableCastShadows(true);
-        newMesh->SetBakeLighting(true);
-        newMesh->SetUseTriangleCollision(true);
-        newMesh->EnableCollision(options.mEnableCollision);
+    OctaveNodeExtras extras;
+    if (options.mApplyGltfExtras)
+    {
+        auto octIt = extrasMap.find(nodeName);
+        if (octIt != extrasMap.end())
+        {
+            extras = octIt->second;
+        }
+    }
+
+    // Resolve asset from extras (UUID first, then name)
+    StaticMesh* assetMesh = nullptr;
+    if (options.mApplyGltfExtras)
+    {
+        if (extras.mAssetUuid != 0)
+        {
+            Asset* a = AssetManager::Get()->GetAssetByUuid(extras.mAssetUuid);
+            if (a)
+            {
+                assetMesh = a->As<StaticMesh>();
+            }
+            else
+            {
+                LogWarning("OctaveExtras: Could not find asset by UUID %llu for node '%s'", extras.mAssetUuid, nodeName.c_str());
+            }
+        }
+
+        if (assetMesh == nullptr && !extras.mAssetName.empty())
+        {
+            // Try path-based lookup first (e.g. "Assets/Models/SM_Cube"), then name-based
+            Asset* a = AssetManager::Get()->LoadAssetByPath(extras.mAssetName);
+            if (a)
+            {
+                assetMesh = a->As<StaticMesh>();
+            }
+            else
+            {
+                assetMesh = LoadAsset<StaticMesh>(extras.mAssetName);
+            }
+
+            if (assetMesh == nullptr)
+            {
+                LogWarning("OctaveExtras: Could not load asset '%s' for node '%s'", extras.mAssetName.c_str(), nodeName.c_str());
+            }
+        }
+    }
+
+    if (node->mNumMeshes > 0)
+    {
+        for (uint32_t i = 0; i < node->mNumMeshes; ++i)
+        {
+            uint32_t meshIndex = node->mMeshes[i];
+            StaticMesh* meshToUse = assetMesh ? assetMesh : meshList[meshIndex];
+
+            Node* newNode = nullptr;
+
+            switch (extras.mMeshType)
+            {
+            case OctaveMeshType::Node3D:
+            {
+                Node3D* newNode3D = root->CreateChild<Node3D>();
+                newNode3D->SetTransform(transform);
+                newNode3D->SetName(nodeName);
+                newNode = newNode3D;
+                break;
+            }
+            case OctaveMeshType::InstancedMesh:
+            {
+                InstancedMesh3D* newInst = root->CreateChild<InstancedMesh3D>();
+                newInst->SetStaticMesh(meshToUse);
+                newInst->SetTransform(transform);
+                newInst->SetName(nodeName);
+                newInst->EnableCastShadows(true);
+                newInst->SetBakeLighting(true);
+                newInst->EnableCollision(options.mEnableCollision);
+                newNode = newInst;
+                break;
+            }
+            case OctaveMeshType::StaticMesh:
+            default:
+            {
+                StaticMesh3D* newMesh = root->CreateChild<StaticMesh3D>();
+                newMesh->SetStaticMesh(meshToUse);
+                newMesh->SetUseTriangleCollision(meshToUse->IsTriangleCollisionMeshEnabled());
+                newMesh->SetTransform(transform);
+                newMesh->SetName(nodeName);
+                newMesh->EnableCastShadows(true);
+                newMesh->SetBakeLighting(true);
+                newMesh->SetUseTriangleCollision(true);
+                newMesh->EnableCollision(options.mEnableCollision);
+                newNode = newMesh;
+                break;
+            }
+            }
+
+            if (newNode != nullptr && !extras.mScriptPath.empty())
+            {
+                newNode->SetScriptFile(extras.mScriptPath);
+            }
+        }
+    }
+    else if (options.mApplyGltfExtras && (!extras.mAssetName.empty() || extras.mAssetUuid != 0))
+    {
+        // Node has no embedded mesh but has an octave_asset reference
+        Node* newNode = nullptr;
+
+        switch (extras.mMeshType)
+        {
+        case OctaveMeshType::Node3D:
+        {
+            Node3D* newNode3D = root->CreateChild<Node3D>();
+            newNode3D->SetTransform(transform);
+            newNode3D->SetName(nodeName);
+            newNode = newNode3D;
+            break;
+        }
+        case OctaveMeshType::InstancedMesh:
+        {
+            if (assetMesh != nullptr)
+            {
+                InstancedMesh3D* newInst = root->CreateChild<InstancedMesh3D>();
+                newInst->SetStaticMesh(assetMesh);
+                newInst->SetTransform(transform);
+                newInst->SetName(nodeName);
+                newInst->EnableCastShadows(true);
+                newInst->SetBakeLighting(true);
+                newInst->EnableCollision(options.mEnableCollision);
+                newNode = newInst;
+            }
+            break;
+        }
+        case OctaveMeshType::StaticMesh:
+        default:
+        {
+            if (assetMesh != nullptr)
+            {
+                StaticMesh3D* newMesh = root->CreateChild<StaticMesh3D>();
+                newMesh->SetStaticMesh(assetMesh);
+                newMesh->SetUseTriangleCollision(assetMesh->IsTriangleCollisionMeshEnabled());
+                newMesh->SetTransform(transform);
+                newMesh->SetName(nodeName);
+                newMesh->EnableCastShadows(true);
+                newMesh->SetBakeLighting(true);
+                newMesh->SetUseTriangleCollision(true);
+                newMesh->EnableCollision(options.mEnableCollision);
+                newNode = newMesh;
+            }
+            break;
+        }
+        }
+
+        if (newNode != nullptr && !extras.mScriptPath.empty())
+        {
+            newNode->SetScriptFile(extras.mScriptPath);
+        }
     }
 
     for (uint32_t i = 0; i < node->mNumChildren; ++i)
     {
-        SpawnAiNode(node->mChildren[i], root, parentTransform, meshList, options);
+        SpawnAiNode(node->mChildren[i], root, transform, meshList, options, extrasMap);
     }
 }
 
@@ -2534,7 +2859,8 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
         if (extension == ".glb" ||
             extension == ".gltf" ||
-            extension == ".dae")
+            extension == ".dae" ||
+            extension == ".blend")
         {
             LogDebug("Begin scene import...");
             Assimp::Importer importer;
@@ -2544,6 +2870,13 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             {
                 LogError("Failed to load scene file");
                 return;
+            }
+
+            // Parse Octave extras from glTF files
+            std::unordered_map<std::string, OctaveNodeExtras> extrasMap;
+            if (options.mApplyGltfExtras && (extension == ".gltf" || extension == ".glb"))
+            {
+                extrasMap = ParseGltfExtras(filename);
             }
 
             // Get the current directory in the asset panel (all assets will be saved there)
@@ -2825,10 +3158,19 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
                     newCamera->SetName(aCamera->mName.C_Str());
 
+                    if (options.mApplyGltfExtras)
+                    {
+                        auto camExtIt = extrasMap.find(aCamera->mName.C_Str());
+                        if (camExtIt != extrasMap.end() && camExtIt->second.mMainCamera)
+                        {
+                            newCamera->SetIsMainCamera(true);
+                        }
+                    }
+
                 }
 			}
             aiNode* node = scene->mRootNode;
-            SpawnAiNode(node, rootNode.Get(), glm::mat4(1), meshList, options);
+            SpawnAiNode(node, rootNode.Get(), glm::mat4(1), meshList, options, extrasMap);
 
             AssetStub* sceneStub = EditorAddUniqueAsset(fullSceneName.c_str(), sceneDir, Scene::GetStaticType(), true);
             Scene* newScene = sceneStub->mAsset ? sceneStub->mAsset->As<Scene>() : nullptr;
@@ -2847,7 +3189,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
         }
         else
         {
-            LogError("Failed to import scene. File format must be .glb or .gltf");
+            LogError("Failed to import scene. File format must be .glb, .gltf, .dae, or .blend");
         }
     }
 }
@@ -2888,6 +3230,44 @@ void ActionManager::BeginImportCamera()
     }
 
 }
+
+static void HandleReimportSceneCallback(const std::vector<std::string>& filePaths)
+{
+    if (filePaths.size() > 1)
+    {
+        LogWarning("Can only reimport one scene at a time. Ignoring extra files.");
+    }
+
+    if (filePaths.size() >= 1)
+    {
+        GetEditorState()->mPendingReimportScenePath = filePaths[0];
+    }
+}
+
+void ActionManager::BeginReimportScene(AssetStub* sceneStub)
+{
+    if (GetEngineState()->mProjectPath == "")
+    {
+        LogWarning("Cannot reimport scene. No project loaded.");
+        return;
+    }
+
+    if (sceneStub == nullptr || sceneStub->mType != Scene::GetStaticType())
+    {
+        LogWarning("Cannot reimport scene. Invalid scene asset.");
+        return;
+    }
+
+    GetEditorState()->mPendingReimportSceneStub = sceneStub;
+
+#if USE_IMGUI_FILE_BROWSER
+    EditorOpenFileBrowser(HandleReimportSceneCallback, false);
+#else
+    std::vector<std::string> filePaths = SYS_OpenFileDialog();
+    HandleReimportSceneCallback(filePaths);
+#endif
+}
+
 void ActionManager::GenerateEmbeddedAssetFiles(std::vector<std::pair<AssetStub*, std::string> >& assets,
     const char* headerPath,
     const char* sourcePath)

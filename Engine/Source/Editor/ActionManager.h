@@ -133,6 +133,7 @@ public:
     void ImportCamera(const CameraImportOptions& options);
     void ImportScene(const SceneImportOptions& options);
     void BeginImportScene();
+    void BeginReimportScene(AssetStub* sceneStub);
     void BeginImportCamera();
     void BuildData(Platform platform, bool embedded);
     void PrepareRelease();

@@ -28,7 +28,6 @@ static std::vector<PendingPluginRegistration>* sPendingRegistrations = nullptr;
 
 void QueuePluginRegistration(int (*getDescFunc)(OctavePluginDesc*), const char* pluginId)
 {
-    LogError("[RPM] Q: %s", pluginId);
 
     // If manager already exists, register directly
     if (RuntimePluginManager::Get())
@@ -37,7 +36,6 @@ void QueuePluginRegistration(int (*getDescFunc)(OctavePluginDesc*), const char* 
         if (getDescFunc(&desc) == 0)
         {
             RuntimePluginManager::Get()->RegisterPlugin(desc, pluginId);
-            LogError("[RPM] Direct reg: %s", pluginId);
         }
         return;
     }
@@ -52,7 +50,6 @@ void QueuePluginRegistration(int (*getDescFunc)(OctavePluginDesc*), const char* 
     pending.getDescFunc = getDescFunc;
     pending.pluginId = pluginId;
     sPendingRegistrations->push_back(pending);
-    LogError("[RPM] Queued: %s", pluginId);
 }
 
 // ===== Engine API Implementation =====
@@ -366,14 +363,12 @@ static void Plugin_luaL_getmetatable(lua_State* L, const char* tname) { luaL_get
 
 void RuntimePluginManager::Create()
 {
-    LogError("[RPM] Create");
     if (sInstance == nullptr)
     {
         sInstance = new RuntimePluginManager();
 
         // Process any pending registrations from static initialization
         int pendingCount = sPendingRegistrations ? (int)sPendingRegistrations->size() : 0;
-        LogError("[RPM] Pend: %d", pendingCount);
 
         if (sPendingRegistrations != nullptr)
         {
@@ -383,7 +378,6 @@ void RuntimePluginManager::Create()
                 if (pending.getDescFunc(&desc) == 0)
                 {
                     sInstance->RegisterPlugin(desc, pending.pluginId);
-                    LogError("[RPM] Reg: %s", pending.pluginId.c_str());
                 }
             }
 
@@ -528,11 +522,9 @@ void RuntimePluginManager::Initialize()
         return;
     }
 
-    LogError("[RPM] Init: %zu", mPlugins.size());
 
     for (RuntimePluginState& plugin : mPlugins)
     {
-        LogError("[RPM] Load: %s", plugin.mPluginId.c_str());
 
         if (plugin.mDesc.OnLoad != nullptr)
         {
@@ -540,30 +532,25 @@ void RuntimePluginManager::Initialize()
             if (result == 0)
             {
                 plugin.mLoaded = true;
-                LogError("[RPM] OK: %s", plugin.mPluginId.c_str());
 
                 // Register script functions
                 if (plugin.mDesc.RegisterScriptFuncs != nullptr)
                 {
-                    LogError("[RPM] RegLua: %s", plugin.mPluginId.c_str());
                     plugin.mDesc.RegisterScriptFuncs(GetLua());
                 }
             }
             else
             {
-                LogError("[RPM] FAIL: %s err=%d", plugin.mPluginId.c_str(), result);
             }
         }
         else
         {
             // No OnLoad, just mark as loaded
             plugin.mLoaded = true;
-            LogError("[RPM] NoLoad: %s", plugin.mPluginId.c_str());
         }
     }
 
     mInitialized = true;
-    LogError("[RPM] Init done");
 }
 
 void RuntimePluginManager::Shutdown()

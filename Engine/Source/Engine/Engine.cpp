@@ -458,13 +458,10 @@ bool Initialize()
 
     // Initialize runtime plugin manager (for both editor and game builds)
     // This handles plugins compiled directly into the executable
-    LogError("[ENG] RPM start");
     RuntimePluginManager::Create();
-    LogError("[ENG] RPM created");
     if (RuntimePluginManager::Get())
     {
         RuntimePluginManager::Get()->Initialize();
-        LogError("[ENG] RPM init done");
     }
     else
     {

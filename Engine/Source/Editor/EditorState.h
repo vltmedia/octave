@@ -150,6 +150,8 @@ struct EditorState
     int32_t mNodePropertySelectIndex = 0;
     std::string mNodePropertySelectName = "";
     std::string mPendingSceneImportPath = "";
+    AssetStub* mPendingReimportSceneStub = nullptr;
+    std::string mPendingReimportScenePath = "";
     bool mShutdownUnsavedCheck = false;
     bool mDevMode = false;
     bool mShowBottomPane = true;
