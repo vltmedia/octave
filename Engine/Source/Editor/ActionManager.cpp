@@ -11,6 +11,7 @@
 #include <cstdlib>
 
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <string>
 #include <functional>
@@ -55,6 +56,8 @@
 #include "Nodes/3D/InstancedMesh3d.h"
 #include "Nodes/3D/TextMesh3d.h"
 #include "Nodes/3D/Camera3d.h"
+#include "Script.h"
+#include "Datum.h"
 
 #include "System/System.h"
 #include "Packaging/PackagingSettings.h"
@@ -2500,9 +2503,111 @@ static void ParseGltfExtrasFromDoc(const rapidjson::Document& doc, std::unordere
                 hasOctaveData = true;
         }
 
+        if (extras.HasMember("octave_script_props") && extras["octave_script_props"].IsString())
+        {
+            data.mScriptPropsJson = extras["octave_script_props"].GetString();
+        }
+        if (extras.HasMember("octave_script_props_types") && extras["octave_script_props_types"].IsString())
+        {
+            data.mScriptPropsTypesJson = extras["octave_script_props_types"].GetString();
+        }
+
+        if (extras.HasMember("octave_material_type") && extras["octave_material_type"].IsString())
+        {
+            data.mMaterialType = extras["octave_material_type"].GetString();
+            hasOctaveData = true;
+        }
+
         if (hasOctaveData)
         {
+            LogDebug("GltfExtras: node='%s' asset='%s' uuid=%llu meshType=%d script='%s'",
+                nodeName.c_str(), data.mAssetName.c_str(), data.mAssetUuid,
+                (int)data.mMeshType, data.mScriptPath.c_str());
             result[nodeName] = data;
+        }
+    }
+}
+
+static void ApplyScriptPropertyOverrides(Node* node, const OctaveNodeExtras& extras)
+{
+    if (extras.mScriptPropsJson.empty() || extras.mScriptPropsTypesJson.empty())
+        return;
+
+    Script* script = node->GetScript();
+    if (script == nullptr)
+        return;
+
+    rapidjson::Document propsDoc;
+    propsDoc.Parse(extras.mScriptPropsJson.c_str());
+    if (propsDoc.HasParseError() || !propsDoc.IsObject())
+        return;
+
+    rapidjson::Document typesDoc;
+    typesDoc.Parse(extras.mScriptPropsTypesJson.c_str());
+    if (typesDoc.HasParseError() || !typesDoc.IsObject())
+        return;
+
+    for (auto it = propsDoc.MemberBegin(); it != propsDoc.MemberEnd(); ++it)
+    {
+        const char* key = it->name.GetString();
+
+        if (!typesDoc.HasMember(key) || !typesDoc[key].IsInt())
+            continue;
+
+        int datumTypeInt = typesDoc[key].GetInt();
+        const rapidjson::Value& val = it->value;
+
+        switch (static_cast<DatumType>(datumTypeInt))
+        {
+        case DatumType::Integer:
+            if (val.IsInt()) script->SetField(key, Datum((int32_t)val.GetInt()));
+            break;
+        case DatumType::Float:
+            if (val.IsNumber()) script->SetField(key, Datum((float)val.GetDouble()));
+            break;
+        case DatumType::Bool:
+            if (val.IsBool()) script->SetField(key, Datum(val.GetBool()));
+            break;
+        case DatumType::String:
+            if (val.IsString()) script->SetField(key, Datum(std::string(val.GetString())));
+            break;
+        case DatumType::Vector2D:
+            if (val.IsArray() && val.Size() >= 2)
+            {
+                glm::vec2 v((float)val[0].GetDouble(), (float)val[1].GetDouble());
+                script->SetField(key, Datum(v));
+            }
+            break;
+        case DatumType::Vector:
+            if (val.IsArray() && val.Size() >= 3)
+            {
+                glm::vec3 v((float)val[0].GetDouble(), (float)val[1].GetDouble(), (float)val[2].GetDouble());
+                script->SetField(key, Datum(v));
+            }
+            break;
+        case DatumType::Color:
+            if (val.IsArray() && val.Size() >= 4)
+            {
+                glm::vec4 v((float)val[0].GetDouble(), (float)val[1].GetDouble(),
+                            (float)val[2].GetDouble(), (float)val[3].GetDouble());
+                script->SetField(key, Datum(v));
+            }
+            break;
+        case DatumType::Asset:
+            if (val.IsString())
+            {
+                Asset* asset = AssetManager::Get()->LoadAsset(val.GetString());
+                script->SetField(key, Datum(asset));
+            }
+            break;
+        case DatumType::Byte:
+            if (val.IsInt()) script->SetField(key, Datum((uint8_t)val.GetInt()));
+            break;
+        case DatumType::Short:
+            if (val.IsInt()) script->SetField(key, Datum((int16_t)val.GetInt()));
+            break;
+        default:
+            break;
         }
     }
 }
@@ -2578,6 +2683,31 @@ static std::unordered_map<std::string, OctaveNodeExtras> ParseGltfExtras(const s
     return result;
 }
 
+static void ApplyMaterialTypeOverride(StaticMesh* mesh, const std::string& materialType)
+{
+    if (mesh == nullptr)
+        return;
+
+    Material* mat = mesh->GetMaterial();
+    if (mat == nullptr || !mat->IsLite())
+        return;
+
+    MaterialLite* matLite = static_cast<MaterialLite*>(mat);
+
+    if (materialType == "UNLIT")
+    {
+        matLite->SetShadingModel(ShadingModel::Unlit);
+    }
+    else if (materialType == "LIT")
+    {
+        matLite->SetShadingModel(ShadingModel::Lit);
+    }
+    else if (materialType == "VERTEX_COLOR")
+    {
+        matLite->SetVertexColorMode(VertexColorMode::Modulate);
+    }
+}
+
 static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransform, const std::vector<StaticMesh*>& meshList, const SceneImportOptions& options, const std::unordered_map<std::string, OctaveNodeExtras>& extrasMap)
 {
     if (node == nullptr || root == nullptr)
@@ -2601,12 +2731,20 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
     StaticMesh* assetMesh = nullptr;
     if (options.mApplyGltfExtras)
     {
+        if (extras.mAssetUuid != 0 || !extras.mAssetName.empty())
+        {
+            LogDebug("OctaveExtras: Resolving asset for node '%s' — uuid=%llu name='%s'",
+                nodeName.c_str(), extras.mAssetUuid, extras.mAssetName.c_str());
+        }
+
         if (extras.mAssetUuid != 0)
         {
             Asset* a = AssetManager::Get()->GetAssetByUuid(extras.mAssetUuid);
             if (a)
             {
                 assetMesh = a->As<StaticMesh>();
+                LogDebug("OctaveExtras: UUID lookup SUCCESS for node '%s' -> asset '%s'",
+                    nodeName.c_str(), a->GetName().c_str());
             }
             else
             {
@@ -2617,14 +2755,22 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
         if (assetMesh == nullptr && !extras.mAssetName.empty())
         {
             // Try path-based lookup first (e.g. "Assets/Models/SM_Cube"), then name-based
+            LogDebug("OctaveExtras: Trying path lookup '%s' for node '%s'", extras.mAssetName.c_str(), nodeName.c_str());
             Asset* a = AssetManager::Get()->LoadAssetByPath(extras.mAssetName);
             if (a)
             {
                 assetMesh = a->As<StaticMesh>();
+                LogDebug("OctaveExtras: Path lookup SUCCESS -> '%s' (type=%s)",
+                    a->GetName().c_str(), Asset::GetNameFromTypeId(a->GetType()));
             }
             else
             {
+                LogDebug("OctaveExtras: Path lookup FAILED, trying name lookup '%s'", extras.mAssetName.c_str());
                 assetMesh = LoadAsset<StaticMesh>(extras.mAssetName);
+                if (assetMesh)
+                {
+                    LogDebug("OctaveExtras: Name lookup SUCCESS -> '%s'", assetMesh->GetName().c_str());
+                }
             }
 
             if (assetMesh == nullptr)
@@ -2662,6 +2808,17 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newInst->EnableCastShadows(true);
                 newInst->SetBakeLighting(true);
                 newInst->EnableCollision(options.mEnableCollision);
+                {
+                    MeshInstanceData data;
+                    glm::vec3 skew;
+                    glm::vec4 perspective;
+                    glm::quat rotation;
+                    glm::vec3 scale;
+                    glm::vec3 translation;
+                    glm::decompose(transform, scale, rotation, translation, skew, perspective);
+   
+                    newInst->SetInstanceData({ data });
+                }
                 newNode = newInst;
                 break;
             }
@@ -2682,9 +2839,15 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
             }
             }
 
+            if (!assetMesh && !extras.mMaterialType.empty())
+            {
+                ApplyMaterialTypeOverride(meshToUse, extras.mMaterialType);
+            }
+
             if (newNode != nullptr && !extras.mScriptPath.empty())
             {
                 newNode->SetScriptFile(extras.mScriptPath);
+                ApplyScriptPropertyOverrides(newNode, extras);
             }
         }
     }
@@ -2714,6 +2877,19 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
                 newInst->EnableCastShadows(true);
                 newInst->SetBakeLighting(true);
                 newInst->EnableCollision(options.mEnableCollision);
+                MeshInstanceData data;
+                glm::vec3 skew;
+                glm::vec4 perspective;
+                glm::quat rotation;
+                glm::vec3 scale;
+                glm::vec3 translation;
+                glm::decompose(transform, scale, rotation, translation, skew, perspective);
+       /*         data.mPosition = translation;
+                data.mRotation = glm::degrees(glm::eulerAngles(rotation));
+                data.mScale = scale;*/
+                newInst->SetInstanceData({ data });
+				//newInst->SetPosition({ 0,0,0 });
+
                 newNode = newInst;
             }
             break;
@@ -2741,6 +2917,7 @@ static void SpawnAiNode(aiNode* node, Node* root, const glm::mat4& parentTransfo
         if (newNode != nullptr && !extras.mScriptPath.empty())
         {
             newNode->SetScriptFile(extras.mScriptPath);
+            ApplyScriptPropertyOverrides(newNode, extras);
         }
     }
 
@@ -2877,6 +3054,13 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             if (options.mApplyGltfExtras && (extension == ".gltf" || extension == ".glb"))
             {
                 extrasMap = ParseGltfExtras(filename);
+                LogDebug("Parsed %zu glTF extras entries", extrasMap.size());
+                for (auto& kv : extrasMap)
+                {
+                    LogDebug("  extras['%s']: asset='%s' uuid=%llu meshType=%d",
+                        kv.first.c_str(), kv.second.mAssetName.c_str(),
+                        kv.second.mAssetUuid, (int)kv.second.mMeshType);
+                }
             }
 
             // Get the current directory in the asset panel (all assets will be saved there)
@@ -2905,6 +3089,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 return;
             }
 
+            LogDebug("Purging scene dir: %s (%zu assets)", sceneDir->mPath.c_str(), sceneDir->mAssetStubs.size());
             sceneDir->Purge();
             GetEditorState()->SetAssetDirectory(sceneDir, true);
 
@@ -2916,9 +3101,56 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
             std::vector<StaticMesh*> meshList;
             std::unordered_map<std::string, Texture*> textureMap;
 
+            // Pre-scan: determine which mesh indices actually need new assets created.
+            // If ALL nodes referencing a mesh have an octave_asset extra, skip creating that mesh.
+            std::set<uint32_t> neededMeshIndices;
+            std::function<void(aiNode*)> collectNeededMeshes = [&](aiNode* n) {
+                if (!n) return;
+                std::string name = n->mName.C_Str();
+                bool hasAssetExtra = false;
+                if (options.mApplyGltfExtras)
+                {
+                    auto it = extrasMap.find(name);
+                    if (it != extrasMap.end() && (!it->second.mAssetName.empty() || it->second.mAssetUuid != 0))
+                    {
+                        hasAssetExtra = true;
+                    }
+                }
+                if (!hasAssetExtra)
+                {
+                    for (uint32_t m = 0; m < n->mNumMeshes; ++m)
+                    {
+                        neededMeshIndices.insert(n->mMeshes[m]);
+                    }
+                }
+                for (uint32_t c = 0; c < n->mNumChildren; ++c)
+                {
+                    collectNeededMeshes(n->mChildren[c]);
+                }
+            };
+            collectNeededMeshes(scene->mRootNode);
+
+            // Derive which material indices are needed (only those used by needed meshes)
+            std::set<uint32_t> neededMaterialIndices;
+            for (uint32_t idx : neededMeshIndices)
+            {
+                neededMaterialIndices.insert(scene->mMeshes[idx]->mMaterialIndex);
+            }
+
+            LogDebug("Pre-scan: %zu/%u meshes needed, %zu/%u materials needed",
+                neededMeshIndices.size(), scene->mNumMeshes,
+                neededMaterialIndices.size(), scene->mNumMaterials);
+
             uint32_t numMaterials = scene->mNumMaterials;
             for (uint32_t i = 0; i < numMaterials; ++i)
             {
+                // Skip materials not needed by any mesh we're actually creating
+                if (neededMaterialIndices.find(i) == neededMaterialIndices.end())
+                {
+                    materialList.push_back(nullptr);
+                    continue;
+                }
+
                 aiMaterial* aMaterial = scene->mMaterials[i];
                 std::string materialName = options.mPrefix + aMaterial->GetName().C_Str();
 
@@ -3026,6 +3258,13 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
             for (uint32_t i = 0; i < numMeshes; ++i)
             {
+                // Skip meshes not needed (all referencing nodes have octave_asset extras)
+                if (neededMeshIndices.find(i) == neededMeshIndices.end())
+                {
+                    meshList.push_back(nullptr);
+                    continue;
+                }
+
                 aiMesh* aMesh = scene->mMeshes[i];
                 std::string meshName = options.mPrefix + aMesh->mName.C_Str();
 
@@ -3039,7 +3278,7 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
                 int32_t uniqueNum = 1;
                 for (int32_t u = 0; u < (int32_t)meshList.size(); ++u)
                 {
-                    if (meshList[u]->GetName() == uniqueName)
+                    if (meshList[u] != nullptr && meshList[u]->GetName() == uniqueName)
                     {
                         uniqueName = meshName + "_" + std::to_string(uniqueNum);
                         uniqueNum++;
@@ -3169,6 +3408,23 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
                 }
 			}
+            LogDebug("Spawning scene nodes — meshList has %zu entries, extrasMap has %zu entries",
+                meshList.size(), extrasMap.size());
+            // Dump all referenced asset names/UUIDs so we can cross-check with engine asset registry
+            for (auto& kv : extrasMap)
+            {
+                if (!kv.second.mAssetName.empty())
+                {
+                    AssetStub* stub = AssetManager::Get()->GetAssetStub(kv.second.mAssetName);
+                    AssetStub* stubByPath = AssetManager::Get()->GetAssetStubByPath(kv.second.mAssetName);
+                    LogDebug("  Pre-spawn check '%s': byName=%s byPath=%s uuidInMap=%s",
+                        kv.first.c_str(),
+                        stub ? stub->mName.c_str() : "NULL",
+                        stubByPath ? stubByPath->mName.c_str() : "NULL",
+                        kv.second.mAssetUuid != 0 ?
+                            (AssetManager::Get()->GetAssetByUuid(kv.second.mAssetUuid) ? "FOUND" : "MISS") : "N/A");
+                }
+            }
             aiNode* node = scene->mRootNode;
             SpawnAiNode(node, rootNode.Get(), glm::mat4(1), meshList, options, extrasMap);
 

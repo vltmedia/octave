@@ -12,6 +12,9 @@ struct OctaveNodeExtras
     std::string mAssetName;
     uint64_t mAssetUuid = 0;
     std::string mScriptPath;
+    std::string mScriptPropsJson;
+    std::string mScriptPropsTypesJson;
+    std::string mMaterialType;
     bool mMainCamera = false;
 };
 

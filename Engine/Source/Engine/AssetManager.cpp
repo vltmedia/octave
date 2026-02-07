@@ -156,11 +156,14 @@ AssetStub* AssetManager::RegisterAsset(const std::string& filename, TypeId type,
     {
         // Get path relative to project/engine Assets folder
         // e.g., "ProjectName/Assets/Models/SM_Plane.oct" -> "Models/SM_Plane"
+        // Normalize backslashes so find works on Windows paths
         std::string dirPath = directory->mPath;
-        size_t assetsPos = dirPath.find("/Assets/");
+        std::string normalizedDirPath = dirPath;
+        std::replace(normalizedDirPath.begin(), normalizedDirPath.end(), '\\', '/');
+        size_t assetsPos = normalizedDirPath.find("/Assets/");
         if (assetsPos != std::string::npos)
         {
-            relativePath = dirPath.substr(assetsPos + 8) + name;  // +8 to skip "/Assets/"
+            relativePath = normalizedDirPath.substr(assetsPos + 8) + name;  // +8 to skip "/Assets/"
         }
         else
         {
@@ -1005,6 +1008,22 @@ AssetStub* AssetManager::GetAssetStubByPath(const std::string& path)
     }
 
     auto it = mAssetPathMap.find(lookupPath);
+    if (it == mAssetPathMap.end())
+    {
+        LogDebug("GetAssetStubByPath: MISS for '%s' (lookup='%s'). PathMap has %zu entries.",
+            path.c_str(), lookupPath.c_str(), mAssetPathMap.size());
+
+        // Dump nearby keys to help debug
+        int count = 0;
+        for (auto& kv : mAssetPathMap)
+        {
+            if (kv.first.find(lookupPath.substr(lookupPath.find_last_of('/') + 1)) != std::string::npos)
+            {
+                LogDebug("  PathMap near-match: '%s'", kv.first.c_str());
+                if (++count >= 5) break;
+            }
+        }
+    }
     return (it != mAssetPathMap.end()) ? it->second : nullptr;
 }
 

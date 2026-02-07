@@ -8,6 +8,7 @@ bl_info = {
     "category": "Import-Export",
 }
 
+import json
 import os
 import re
 import struct
@@ -17,6 +18,9 @@ from bpy.props import (
     BoolProperty,
     CollectionProperty,
     EnumProperty,
+    FloatProperty,
+    FloatVectorProperty,
+    IntProperty,
     StringProperty,
     PointerProperty,
 )
@@ -55,6 +59,17 @@ KNOWN_ASSET_TYPES = [
 TYPE_ID_TO_NAME = {oct_hash_string(n): n for n in KNOWN_ASSET_TYPES}
 
 OCT_MAGIC = 0x4F435421
+
+# DatumType enum values (mirrors Engine DatumType)
+DATUM_TYPE_NAMES = {
+    "Integer": 0, "Float": 1, "Bool": 2, "String": 3,
+    "Vector2D": 4, "Vector": 5, "Color": 6, "Asset": 7,
+    "Byte": 8, "Short": 11,
+}
+EDITABLE_TYPES = {0, 1, 2, 3, 4, 5, 6, 7, 8, 11}
+
+# Module-level cache: { (scene_id, script_rel_path): [prop_dicts] }
+_script_prop_cache = {}
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +163,170 @@ def scan_project_scripts(project_dir):
 
 
 # ---------------------------------------------------------------------------
+# Lua script property parser
+# ---------------------------------------------------------------------------
+
+def parse_lua_script_properties(filepath):
+    """Parse a Lua script's GatherProperties() and Create() to extract
+    editable property definitions and their default values.
+
+    Returns list of {"name": str, "type": int, "default": value}.
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            source = f.read()
+    except OSError:
+        return []
+
+    # Find GatherProperties body
+    gp_match = re.search(
+        r'function\s+\w+:GatherProperties\s*\(\s*\)(.*?)^end',
+        source, re.MULTILINE | re.DOTALL,
+    )
+    if not gp_match:
+        return []
+
+    gp_body = gp_match.group(1)
+
+    # Extract property entries: { name = "xxx", type = DatumType.Yyy }
+    prop_entries = re.findall(
+        r'\{\s*name\s*=\s*"(\w+)"\s*,\s*type\s*=\s*DatumType\.(\w+)',
+        gp_body,
+    )
+
+    if not prop_entries:
+        return []
+
+    # Build property list filtered to editable types
+    props = []
+    for prop_name, type_name in prop_entries:
+        type_int = DATUM_TYPE_NAMES.get(type_name)
+        if type_int is None or type_int not in EDITABLE_TYPES:
+            continue
+        props.append({"name": prop_name, "type": type_int, "default": None})
+
+    if not props:
+        return []
+
+    # Find Create body for defaults
+    create_match = re.search(
+        r'function\s+\w+:Create\s*\(\s*\)(.*?)^end',
+        source, re.MULTILINE | re.DOTALL,
+    )
+    if create_match:
+        create_body = create_match.group(1)
+        # Extract self.xxx = value assignments
+        defaults = re.findall(r'self\.(\w+)\s*=\s*(.+?)$', create_body, re.MULTILINE)
+        default_map = {name: val.strip() for name, val in defaults}
+
+        for prop in props:
+            raw = default_map.get(prop["name"])
+            if raw is None:
+                continue
+            prop["default"] = _parse_lua_literal(raw, prop["type"])
+
+    return props
+
+
+def _parse_lua_literal(raw, prop_type):
+    """Convert a Lua literal string to a Python value appropriate for prop_type."""
+    # Strip trailing comments
+    raw = re.sub(r'--.*$', '', raw).strip().rstrip(',')
+
+    if raw == "nil":
+        return None
+
+    # Bool
+    if prop_type == 2:  # Bool
+        if raw == "true":
+            return True
+        if raw == "false":
+            return False
+        return None
+
+    # Integer, Byte, Short
+    if prop_type in (0, 8, 11):
+        try:
+            return int(float(raw))
+        except (ValueError, OverflowError):
+            return None
+
+    # Float
+    if prop_type == 1:
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+    # String
+    if prop_type == 3:
+        m = re.match(r'^["\'](.*)["\']\s*$', raw)
+        return m.group(1) if m else None
+
+    # Vector2D: Vec(x, y) or Vector.New(x, y)
+    if prop_type == 4:
+        m = re.match(r'(?:Vec|Vector\.New)\s*\(\s*([^,]+),\s*([^)]+)\)', raw)
+        if m:
+            try:
+                return [float(m.group(1)), float(m.group(2))]
+            except ValueError:
+                pass
+        return None
+
+    # Vector: Vec(x, y, z) or Vector.New(x, y, z)
+    if prop_type == 5:
+        m = re.match(r'(?:Vec|Vector\.New)\s*\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', raw)
+        if m:
+            try:
+                return [float(m.group(1)), float(m.group(2)), float(m.group(3))]
+            except ValueError:
+                pass
+        return None
+
+    # Color: Vec(r, g, b, a) or Vector.New(r, g, b, a)
+    if prop_type == 6:
+        m = re.match(
+            r'(?:Vec|Vector\.New)\s*\(\s*([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)',
+            raw,
+        )
+        if m:
+            try:
+                return [float(m.group(1)), float(m.group(2)),
+                        float(m.group(3)), float(m.group(4))]
+            except ValueError:
+                pass
+        return None
+
+    # Asset: string path
+    if prop_type == 7:
+        m = re.match(r'^["\'](.*)["\']\s*$', raw)
+        return m.group(1) if m else None
+
+    return None
+
+
+def _get_or_parse(scene, script_path):
+    """Get cached parse result or parse the Lua script and cache it."""
+    global _script_prop_cache
+    cache_key = (id(scene), script_path)
+    if cache_key in _script_prop_cache:
+        return _script_prop_cache[cache_key]
+
+    raw_dir = scene.octave_project_dir
+    if not raw_dir:
+        return []
+
+    project_dir = bpy.path.abspath(raw_dir)
+    full_path = os.path.join(project_dir, script_path)
+    if not os.path.isfile(full_path):
+        return []
+
+    result = parse_lua_script_properties(full_path)
+    _script_prop_cache[cache_key] = result
+    return result
+
+
+# ---------------------------------------------------------------------------
 # PropertyGroups
 # ---------------------------------------------------------------------------
 
@@ -160,6 +339,117 @@ class OctaveScannedAsset(PropertyGroup):
 
 class OctaveScannedScript(PropertyGroup):
     name: StringProperty()
+
+
+class OctaveScriptPropValue(PropertyGroup):
+    name: StringProperty()
+    prop_type: IntProperty()  # DatumType int
+    value_float: FloatProperty()
+    value_int: IntProperty()
+    value_bool: BoolProperty()
+    value_string: StringProperty()
+    value_vec2: FloatVectorProperty(size=2)
+    value_vec3: FloatVectorProperty(size=3)
+    value_color: FloatVectorProperty(size=4, subtype='COLOR', min=0.0, max=1.0)
+    value_byte: IntProperty(min=0, max=255)
+    value_short: IntProperty(min=-32768, max=32767)
+    value_asset: StringProperty()
+
+
+# ---------------------------------------------------------------------------
+# Script property rebuild logic
+# ---------------------------------------------------------------------------
+
+def _rebuild_script_props(obj, scene):
+    """Parse script and rebuild the object's octave_script_props collection."""
+    props = obj.octave_props
+    script_path = props.script_file
+    if not script_path:
+        obj.octave_script_props.clear()
+        return
+
+    parsed = _get_or_parse(scene, script_path)
+    if not parsed:
+        obj.octave_script_props.clear()
+        return
+
+    # Snapshot existing values by (name, type)
+    old_values = {}
+    for item in obj.octave_script_props:
+        old_values[(item.name, item.prop_type)] = _read_prop_value(item)
+
+    obj.octave_script_props.clear()
+
+    for pdef in parsed:
+        item = obj.octave_script_props.add()
+        item.name = pdef["name"]
+        item.prop_type = pdef["type"]
+
+        # Restore old value if the same name+type existed, otherwise use parsed default
+        key = (pdef["name"], pdef["type"])
+        if key in old_values and old_values[key] is not None:
+            _write_prop_value(item, old_values[key])
+        elif pdef["default"] is not None:
+            _write_prop_value(item, pdef["default"])
+
+
+def _read_prop_value(item):
+    """Read the appropriate value field from an OctaveScriptPropValue."""
+    t = item.prop_type
+    if t == 0:
+        return item.value_int
+    elif t == 1:
+        return item.value_float
+    elif t == 2:
+        return item.value_bool
+    elif t == 3:
+        return item.value_string
+    elif t == 4:
+        return list(item.value_vec2)
+    elif t == 5:
+        return list(item.value_vec3)
+    elif t == 6:
+        return list(item.value_color)
+    elif t == 7:
+        return item.value_asset
+    elif t == 8:
+        return item.value_byte
+    elif t == 11:
+        return item.value_short
+    return None
+
+
+def _write_prop_value(item, value):
+    """Write a value to the appropriate field of an OctaveScriptPropValue."""
+    t = item.prop_type
+    if t == 0:
+        item.value_int = int(value)
+    elif t == 1:
+        item.value_float = float(value)
+    elif t == 2:
+        item.value_bool = bool(value)
+    elif t == 3:
+        item.value_string = str(value)
+    elif t == 4:
+        item.value_vec2 = (float(value[0]), float(value[1]))
+    elif t == 5:
+        item.value_vec3 = (float(value[0]), float(value[1]), float(value[2]))
+    elif t == 6:
+        item.value_color = (float(value[0]), float(value[1]),
+                            float(value[2]), float(value[3]))
+    elif t == 7:
+        item.value_asset = str(value)
+    elif t == 8:
+        item.value_byte = int(value)
+    elif t == 11:
+        item.value_short = int(value)
+
+
+def _on_script_file_changed(self, context):
+    """Update callback for script_file property."""
+    obj = context.object
+    if obj is not None:
+        _rebuild_script_props(obj, context.scene)
 
 
 class OctaveObjectProperties(PropertyGroup):
@@ -182,12 +472,56 @@ class OctaveObjectProperties(PropertyGroup):
         name="Script",
         description="Lua script to assign to this node on import (e.g. Goblin.lua)",
         default="",
+        update=_on_script_file_changed,
+    )
+    material_type: EnumProperty(
+        name="Material Type",
+        description="Material shading type for imported meshes (only applies when no Octave Asset is set)",
+        items=[
+            ("DEFAULT", "Default", "Use scene import default"),
+            ("UNLIT", "Unlit", "Unlit material (no lighting)"),
+            ("LIT", "Lit", "Lit material (standard lighting)"),
+            ("VERTEX_COLOR", "Vertex Color", "Use vertex colors"),
+        ],
+        default="DEFAULT",
     )
     main_camera: BoolProperty(
         name="Main Camera",
         description="Set this camera as the main camera on import",
         default=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Refresh script properties operator
+# ---------------------------------------------------------------------------
+
+class OCTAVE_OT_refresh_script_props(Operator):
+    bl_idname = "octave.refresh_script_props"
+    bl_label = "Refresh Script Properties"
+    bl_description = "Re-parse the Lua script and refresh editable properties"
+
+    def execute(self, context):
+        obj = context.object
+        if obj is None:
+            self.report({"WARNING"}, "No active object")
+            return {"CANCELLED"}
+
+        props = obj.octave_props
+        script_path = props.script_file
+        if not script_path:
+            self.report({"WARNING"}, "No script assigned")
+            return {"CANCELLED"}
+
+        # Clear cache entry so it re-parses
+        global _script_prop_cache
+        cache_key = (id(context.scene), script_path)
+        _script_prop_cache.pop(cache_key, None)
+
+        _rebuild_script_props(obj, context.scene)
+        n = len(obj.octave_script_props)
+        self.report({"INFO"}, f"Refreshed: {n} editable properties")
+        return {"FINISHED"}
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +560,9 @@ def _match_asset_for_object(obj, catalog):
 
 def _do_refresh(scene):
     """Scan project directory and repopulate catalogs."""
+    global _script_prop_cache
+    _script_prop_cache.clear()
+
     raw = scene.octave_project_dir
     if not raw:
         return (0, 0)
@@ -402,12 +739,48 @@ class OCTAVE_PT_object_data(Panel):
                 text="Octave Asset", icon="ASSET_MANAGER",
             )
             row.operator("octave.match_asset", text="", icon="VIEWZOOM")
+            layout.prop(props, "material_type")
 
         layout.prop_search(
             props, "script_file",
             context.scene, "octave_script_catalog",
             text="Script", icon="SCRIPT",
         )
+
+        # Script Properties section
+        if props.script_file and len(obj.octave_script_props) > 0:
+            box = layout.box()
+            header_row = box.row()
+            header_row.label(text="Script Properties", icon="PROPERTIES")
+            header_row.operator("octave.refresh_script_props", text="", icon="FILE_REFRESH")
+
+            for item in obj.octave_script_props:
+                row = box.row()
+                t = item.prop_type
+                if t == 1:    # Float
+                    row.prop(item, "value_float", text=item.name)
+                elif t == 0:  # Integer
+                    row.prop(item, "value_int", text=item.name)
+                elif t == 2:  # Bool
+                    row.prop(item, "value_bool", text=item.name)
+                elif t == 3:  # String
+                    row.prop(item, "value_string", text=item.name)
+                elif t == 4:  # Vector2D
+                    row.prop(item, "value_vec2", text=item.name)
+                elif t == 5:  # Vector
+                    row.prop(item, "value_vec3", text=item.name)
+                elif t == 6:  # Color
+                    row.prop(item, "value_color", text=item.name)
+                elif t == 7:  # Asset
+                    row.prop_search(
+                        item, "value_asset",
+                        context.scene, "octave_asset_catalog",
+                        text=item.name, icon="ASSET_MANAGER",
+                    )
+                elif t == 8:  # Byte
+                    row.prop(item, "value_byte", text=item.name)
+                elif t == 11:  # Short
+                    row.prop(item, "value_short", text=item.name)
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +798,10 @@ def _sync_custom_properties(obj, scene):
         mesh_type_map = {"NODE3D": "Node3D", "STATIC_MESH": "StaticMesh", "INSTANCED_MESH": "InstancedMesh"}
         obj["mesh_type"] = mesh_type_map.get(props.mesh_type, "StaticMesh")
         obj["octave_asset"] = props.octave_asset
+        if props.material_type != "DEFAULT":
+            obj["octave_material_type"] = props.material_type
+        else:
+            obj["octave_material_type"] = "LIT"
 
     # Convert catalog paths to engine-expected format:
     #   "Scripts/Goblin.lua"                      -> "Goblin.lua"
@@ -437,6 +814,22 @@ def _sync_custom_properties(obj, scene):
         if len(parts) >= 4 and parts[2] == "Scripts":
             script_path = f"Packages/{parts[1]}/{parts[3]}"
     obj["octave_script"] = script_path
+
+    # Serialize script property overrides
+    if len(obj.octave_script_props) > 0:
+        props_dict = {}
+        types_dict = {}
+        for item in obj.octave_script_props:
+            types_dict[item.name] = item.prop_type
+            val = _read_prop_value(item)
+            props_dict[item.name] = val
+        obj["octave_script_props"] = json.dumps(props_dict)
+        obj["octave_script_props_types"] = json.dumps(types_dict)
+    else:
+        # Clean up stale keys if script was removed
+        for key in ("octave_script_props", "octave_script_props_types"):
+            if key in obj:
+                del obj[key]
 
     # Look up UUID from catalog
     obj["octave_asset_uuid"] = "0"
@@ -482,6 +875,9 @@ class OCTAVE_OT_export_for_octave(Operator, ExportHelper):
             export_apply=self.apply_modifiers,
             export_texcoords=True,
             export_normals=True,
+            export_cameras=True,
+            export_lights=True,
+            export_animations=True,
         )
 
         if self.export_selected:
@@ -509,7 +905,9 @@ def menu_func_export(self, context):
 classes = (
     OctaveScannedAsset,
     OctaveScannedScript,
+    OctaveScriptPropValue,
     OctaveObjectProperties,
+    OCTAVE_OT_refresh_script_props,
     OCTAVE_PT_scene_project,
     OCTAVE_PT_object_data,
     OCTAVE_OT_refresh_project,
@@ -524,6 +922,7 @@ def register():
         bpy.utils.register_class(cls)
 
     bpy.types.Object.octave_props = PointerProperty(type=OctaveObjectProperties)
+    bpy.types.Object.octave_script_props = CollectionProperty(type=OctaveScriptPropValue)
 
     bpy.types.Scene.octave_project_dir = StringProperty(
         name="Octave Project Directory",
@@ -544,6 +943,7 @@ def unregister():
     del bpy.types.Scene.octave_script_catalog
     del bpy.types.Scene.octave_asset_catalog
     del bpy.types.Scene.octave_project_dir
+    del bpy.types.Object.octave_script_props
     del bpy.types.Object.octave_props
 
     for cls in reversed(classes):
