@@ -59,6 +59,7 @@
 #include "Packaging/PackagingSettings.h"
 #include "Addons/NativeAddonManager.h"
 #include "Addons/AddonManager.h"
+#include "EditorUIHookManager.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -385,6 +386,13 @@ void ReplaceStringInFile(const std::string& file, const std::string& srcString, 
 
 void ActionManager::BuildData(Platform platform, bool embedded)
 {
+    // Fire OnPackageStarted hook
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr)
+    {
+        hookMgr->FireOnPackageStarted((int32_t)platform);
+    }
+
     LogDebug("Begin packaging...");
     std::string octaveDirectory = SYS_GetOctavePath();
 
@@ -933,6 +941,9 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     {
         LogError("Packaged executable not found: %s", (packagedDir + projectName + extension).c_str());
         LogError("Packaging failed. Please check the log for errors.");
+
+        // Fire OnPackageFinished with failure
+        if (hookMgr != nullptr) hookMgr->FireOnPackageFinished((int32_t)platform, false);
         return;
     }
       if(!IsHeadless()){
@@ -941,6 +952,9 @@ void ActionManager::BuildData(Platform platform, bool embedded)
             }
 
     LogDebug("Finished packaging!");
+
+    // Fire OnPackageFinished with success
+    if (hookMgr != nullptr) hookMgr->FireOnPackageFinished((int32_t)platform, true);
 }
 
 void ActionManager::PrepareRelease()
@@ -1028,7 +1042,11 @@ void ActionManager::PrepareRelease()
 
 void ActionManager::OnSelectedNodeChanged()
 {
-
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr)
+    {
+        hookMgr->FireOnSelectionChanged();
+    }
 }
 
 Node* ActionManager::SpawnNode(TypeId nodeType, Node* parent)
@@ -1304,6 +1322,9 @@ void ActionManager::Undo()
         action->Reverse();
 
         mActionFuture.push_back(action);
+
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->FireOnUndoRedo();
     }
 }
 
@@ -1320,6 +1341,9 @@ void ActionManager::Redo()
         action->Execute();
 
         mActionHistory.push_back(action);
+
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->FireOnUndoRedo();
     }
 }
 
@@ -1949,6 +1973,13 @@ void ActionManager::OpenProject(const char* path)
             nam->ReloadAllNativeAddons();
             LogDebug("Native addons reloaded.");
         }
+
+        // Fire OnProjectOpen hook
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr)
+        {
+            hookMgr->FireOnProjectOpen(pathStr.c_str());
+        }
     }
 }
 
@@ -2026,6 +2057,14 @@ void ActionManager::SaveScene(bool saveAs)
         scene->Capture(root);
         root->SetScene(scene);
         AssetManager::Get()->SaveAsset(scene->GetName());
+
+        // Fire OnProjectSave and OnAssetSaved hooks
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr)
+        {
+            hookMgr->FireOnProjectSave(scene->GetName().c_str());
+            hookMgr->FireOnAssetSaved(scene->GetName().c_str());
+        }
     }
 }
 
@@ -2286,6 +2325,10 @@ Asset* ActionManager::ImportAsset(const std::string& path)
             AssetManager::Get()->SaveAsset(*stub);
 
             retAsset = newAsset;
+
+            // Fire OnAssetImported hook
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->FireOnAssetImported(stub->mName.c_str());
         }
         else
         {
@@ -3142,8 +3185,12 @@ void ActionManager::DeleteAsset(AssetStub* stub)
         }
 
         std::string path = stub->mPath;
+        std::string assetName = stub->mName;
         AssetManager::Get()->PurgeAsset(stub->mName.c_str());
         SYS_RemoveFile(path.c_str());
+
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->FireOnAssetDeleted(assetName.c_str());
     }
     else
     {

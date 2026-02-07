@@ -31,7 +31,7 @@ This example demonstrates:
         "target": "editor",
         "sourceDir": "Source",
         "binaryName": "debugwindow",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```

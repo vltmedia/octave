@@ -3924,6 +3924,15 @@ static void DrawViewportPanel()
     if (ImGui::Button("Extra"))
         ImGui::OpenPopup("ExtraPopup");
 
+    // Draw addon top-level menus
+    {
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr)
+        {
+            hookMgr->DrawTopLevelMenus();
+        }
+    }
+
     ImGui::SameLine();
     bool inPie = IsPlayingInEditor();
     if (ImGui::Button(inPie ? "Stop" : "Play"))
@@ -3935,6 +3944,15 @@ static void DrawViewportPanel()
         else
         {
             GetEditorState()->BeginPlayInEditor();
+        }
+    }
+
+    // Draw addon toolbar items
+    {
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr)
+        {
+            hookMgr->DrawToolbarItems();
         }
     }
 
@@ -4128,6 +4146,12 @@ static void DrawViewportPanel()
         if (ImGui::Selectable("Addons..."))
         {
             GetAddonsWindow()->Open();
+        }
+
+        // Draw plugin menu items for File menu
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawMenuItems("File");
         }
 
         ImGui::EndPopup();
@@ -4337,6 +4361,12 @@ static void DrawViewportPanel()
         if (ImGui::Selectable("Redo"))
             am->Redo();
 
+        // Draw plugin menu items for Edit menu
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawMenuItems("Edit");
+        }
+
         ImGui::EndPopup();
     }
 
@@ -4403,6 +4433,12 @@ static void DrawViewportPanel()
         if (ImGui::Selectable("Debug Log"))
             GetEditorState()->mShowBottomPane = !GetEditorState()->mShowBottomPane;
 
+        // Draw plugin menu items for View menu
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawMenuItems("View");
+        }
+
             ImGui::EndPopup();
     }
 
@@ -4436,6 +4472,12 @@ static void DrawViewportPanel()
         }
         if (ImGui::Selectable("Toggle Transform Mode"))
             GetEditorState()->GetViewport3D()->ToggleTransformMode();
+
+        // Draw plugin menu items for World menu
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawMenuItems("World");
+        }
 
         ImGui::EndPopup();
     }
@@ -4519,6 +4561,12 @@ static void DrawViewportPanel()
             ImGui::Selectable("Prepare Release"))
         {
             ActionManager::Get()->PrepareRelease();
+        }
+
+        // Draw plugin menu items for Extra menu
+        {
+            EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+            if (hookMgr != nullptr) hookMgr->DrawMenuItems("Extra");
         }
 
         ImGui::EndPopup();

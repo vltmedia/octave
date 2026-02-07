@@ -22,7 +22,7 @@
 #endif
 
 // Plugin API version - increment when breaking changes are made
-#define OCTAVE_PLUGIN_API_VERSION 1
+#define OCTAVE_PLUGIN_API_VERSION 2
 
 // Forward declarations
 struct OctaveEngineAPI;
@@ -56,6 +56,28 @@ struct OctavePluginDesc
 
     // Editor UI extension (editor builds only, set to nullptr for game-only plugins)
     void (*RegisterEditorUI)(EditorUIHooks* hooks, uint64_t hookId);
+
+    /**
+     * @brief Called before the editor ImGui context is fully initialized.
+     *
+     * Use this to configure ImGui settings, add custom fonts, or set
+     * configuration flags before the UI is created. The ImGui context
+     * exists but has not been fully configured yet.
+     *
+     * Set to nullptr if not needed.
+     */
+    void (*OnEditorPreInit)();
+
+    /**
+     * @brief Called after the editor is fully initialized, before the main loop starts.
+     *
+     * At this point all editor systems are ready: ImGui is configured,
+     * the project is loaded (if any), and the UI is about to be shown.
+     * Safe to query project state, open windows, etc.
+     *
+     * Set to nullptr if not needed.
+     */
+    void (*OnEditorReady)();
 };
 
 /**

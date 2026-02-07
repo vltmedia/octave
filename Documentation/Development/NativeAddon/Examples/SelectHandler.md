@@ -29,7 +29,7 @@ This example demonstrates:
         "target": "engine",
         "sourceDir": "Source",
         "binaryName": "selecthandler",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```

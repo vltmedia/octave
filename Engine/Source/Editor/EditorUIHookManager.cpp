@@ -210,6 +210,156 @@ void EditorUIHookManager::InitializeHooks()
     };
 
     mHooks.RemoveAllHooks = Hook_RemoveAllHooks;
+
+    // ===== Top-Level Menus =====
+
+    mHooks.AddTopLevelMenuItem = [](HookId hookId, const char* menuName,
+                                    TopLevelMenuDrawCallback drawFunc, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+
+        RegisteredTopLevelMenu menu;
+        menu.mHookId = hookId;
+        menu.mMenuName = menuName ? menuName : "";
+        menu.mDrawFunc = drawFunc;
+        menu.mUserData = userData;
+
+        mgr->mTopLevelMenus.push_back(menu);
+    };
+
+    mHooks.RemoveTopLevelMenuItem = [](HookId hookId, const char* menuName) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+
+        std::string name = menuName ? menuName : "";
+        mgr->mTopLevelMenus.erase(std::remove_if(mgr->mTopLevelMenus.begin(), mgr->mTopLevelMenus.end(),
+            [hookId, &name](const RegisteredTopLevelMenu& menu) {
+                return menu.mHookId == hookId && menu.mMenuName == name;
+            }), mgr->mTopLevelMenus.end());
+    };
+
+    // ===== Toolbar =====
+
+    mHooks.AddToolbarItem = [](HookId hookId, const char* itemName,
+                               ToolbarDrawCallback drawFunc, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+
+        RegisteredToolbarItem item;
+        item.mHookId = hookId;
+        item.mItemName = itemName ? itemName : "";
+        item.mDrawFunc = drawFunc;
+        item.mUserData = userData;
+
+        mgr->mToolbarItems.push_back(item);
+    };
+
+    mHooks.RemoveToolbarItem = [](HookId hookId, const char* itemName) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+
+        std::string name = itemName ? itemName : "";
+        mgr->mToolbarItems.erase(std::remove_if(mgr->mToolbarItems.begin(), mgr->mToolbarItems.end(),
+            [hookId, &name](const RegisteredToolbarItem& item) {
+                return item.mHookId == hookId && item.mItemName == name;
+            }), mgr->mToolbarItems.end());
+    };
+
+    // ===== Project Lifecycle Events =====
+
+    mHooks.RegisterOnProjectOpen = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnProjectOpen.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnProjectClose = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnProjectClose.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnProjectSave = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnProjectSave.push_back({hookId, cb, userData});
+    };
+
+    // ===== Scene Lifecycle Events =====
+
+    mHooks.RegisterOnSceneOpen = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnSceneOpen.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnSceneClose = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnSceneClose.push_back({hookId, cb, userData});
+    };
+
+    // ===== Packaging/Build Events =====
+
+    mHooks.RegisterOnPackageStarted = [](HookId hookId, PlatformEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnPackageStarted.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnPackageFinished = [](HookId hookId, PackageFinishedCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnPackageFinished.push_back({hookId, cb, userData});
+    };
+
+    // ===== Editor State Events =====
+
+    mHooks.RegisterOnSelectionChanged = [](HookId hookId, EventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnSelectionChanged.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnPlayModeChanged = [](HookId hookId, PlayModeCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnPlayModeChanged.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnEditorShutdown = [](HookId hookId, EventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnEditorShutdown.push_back({hookId, cb, userData});
+    };
+
+    // ===== Asset Pipeline Events =====
+
+    mHooks.RegisterOnAssetImported = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnAssetImported.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnAssetDeleted = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnAssetDeleted.push_back({hookId, cb, userData});
+    };
+
+    mHooks.RegisterOnAssetSaved = [](HookId hookId, StringEventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnAssetSaved.push_back({hookId, cb, userData});
+    };
+
+    // ===== Undo/Redo =====
+
+    mHooks.RegisterOnUndoRedo = [](HookId hookId, EventCallback cb, void* userData) {
+        EditorUIHookManager* mgr = EditorUIHookManager::Get();
+        if (mgr == nullptr) return;
+        mgr->mOnUndoRedo.push_back({hookId, cb, userData});
+    };
 }
 
 const std::vector<RegisteredMenuItem>& EditorUIHookManager::GetMenuItems(const std::string& menuPath) const
@@ -393,6 +543,193 @@ void EditorUIHookManager::RemoveAllHooks(HookId hookId)
         [hookId](const RegisteredContextItem& ctx) {
             return ctx.mHookId == hookId;
         }), mContextItems.end());
+
+    // Remove top-level menus
+    mTopLevelMenus.erase(std::remove_if(mTopLevelMenus.begin(), mTopLevelMenus.end(),
+        [hookId](const RegisteredTopLevelMenu& menu) {
+            return menu.mHookId == hookId;
+        }), mTopLevelMenus.end());
+
+    // Remove toolbar items
+    mToolbarItems.erase(std::remove_if(mToolbarItems.begin(), mToolbarItems.end(),
+        [hookId](const RegisteredToolbarItem& item) {
+            return item.mHookId == hookId;
+        }), mToolbarItems.end());
+
+    // Remove event callbacks - helper lambda
+    auto removeByHookId = [hookId](auto& vec) {
+        vec.erase(std::remove_if(vec.begin(), vec.end(),
+            [hookId](const auto& entry) {
+                return entry.mHookId == hookId;
+            }), vec.end());
+    };
+
+    removeByHookId(mOnProjectOpen);
+    removeByHookId(mOnProjectClose);
+    removeByHookId(mOnProjectSave);
+    removeByHookId(mOnSceneOpen);
+    removeByHookId(mOnSceneClose);
+    removeByHookId(mOnPackageStarted);
+    removeByHookId(mOnPackageFinished);
+    removeByHookId(mOnSelectionChanged);
+    removeByHookId(mOnPlayModeChanged);
+    removeByHookId(mOnEditorShutdown);
+    removeByHookId(mOnAssetImported);
+    removeByHookId(mOnAssetDeleted);
+    removeByHookId(mOnAssetSaved);
+    removeByHookId(mOnUndoRedo);
+}
+
+// ===== Top-Level Menus and Toolbar Drawing =====
+
+void EditorUIHookManager::DrawTopLevelMenus()
+{
+    for (const RegisteredTopLevelMenu& menu : mTopLevelMenus)
+    {
+        ImGui::SameLine();
+        if (ImGui::Button(menu.mMenuName.c_str()))
+        {
+            ImGui::OpenPopup(menu.mMenuName.c_str());
+        }
+    }
+
+    for (const RegisteredTopLevelMenu& menu : mTopLevelMenus)
+    {
+        if (ImGui::BeginPopup(menu.mMenuName.c_str()))
+        {
+            if (menu.mDrawFunc)
+            {
+                menu.mDrawFunc(menu.mUserData);
+            }
+            ImGui::EndPopup();
+        }
+    }
+}
+
+void EditorUIHookManager::DrawToolbarItems()
+{
+    for (const RegisteredToolbarItem& item : mToolbarItems)
+    {
+        ImGui::SameLine();
+        if (item.mDrawFunc)
+        {
+            item.mDrawFunc(item.mUserData);
+        }
+    }
+}
+
+// ===== Event Dispatchers =====
+
+void EditorUIHookManager::FireOnProjectOpen(const char* projectPath)
+{
+    for (const auto& entry : mOnProjectOpen)
+    {
+        if (entry.mCallback) entry.mCallback(projectPath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnProjectClose(const char* projectPath)
+{
+    for (const auto& entry : mOnProjectClose)
+    {
+        if (entry.mCallback) entry.mCallback(projectPath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnProjectSave(const char* filePath)
+{
+    for (const auto& entry : mOnProjectSave)
+    {
+        if (entry.mCallback) entry.mCallback(filePath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnSceneOpen(const char* scenePath)
+{
+    for (const auto& entry : mOnSceneOpen)
+    {
+        if (entry.mCallback) entry.mCallback(scenePath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnSceneClose(const char* scenePath)
+{
+    for (const auto& entry : mOnSceneClose)
+    {
+        if (entry.mCallback) entry.mCallback(scenePath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnPackageStarted(int32_t platform)
+{
+    for (const auto& entry : mOnPackageStarted)
+    {
+        if (entry.mCallback) entry.mCallback(platform, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnPackageFinished(int32_t platform, bool success)
+{
+    for (const auto& entry : mOnPackageFinished)
+    {
+        if (entry.mCallback) entry.mCallback(platform, success, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnSelectionChanged()
+{
+    for (const auto& entry : mOnSelectionChanged)
+    {
+        if (entry.mCallback) entry.mCallback(entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnPlayModeChanged(int32_t state)
+{
+    for (const auto& entry : mOnPlayModeChanged)
+    {
+        if (entry.mCallback) entry.mCallback(state, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnEditorShutdown()
+{
+    for (const auto& entry : mOnEditorShutdown)
+    {
+        if (entry.mCallback) entry.mCallback(entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnAssetImported(const char* assetPath)
+{
+    for (const auto& entry : mOnAssetImported)
+    {
+        if (entry.mCallback) entry.mCallback(assetPath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnAssetDeleted(const char* assetPath)
+{
+    for (const auto& entry : mOnAssetDeleted)
+    {
+        if (entry.mCallback) entry.mCallback(assetPath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnAssetSaved(const char* assetPath)
+{
+    for (const auto& entry : mOnAssetSaved)
+    {
+        if (entry.mCallback) entry.mCallback(assetPath, entry.mUserData);
+    }
+}
+
+void EditorUIHookManager::FireOnUndoRedo()
+{
+    for (const auto& entry : mOnUndoRedo)
+    {
+        if (entry.mCallback) entry.mCallback(entry.mUserData);
+    }
 }
 
 HookId GenerateHookId(const char* identifier)

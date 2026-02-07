@@ -37,6 +37,57 @@ typedef void (*WindowDrawCallback)(void* userData);
 typedef void (*InspectorDrawCallback)(void* node, void* userData);
 
 /**
+ * @brief Generic event callback with no additional data.
+ * @param userData User data passed during registration
+ */
+typedef void (*EventCallback)(void* userData);
+
+/**
+ * @brief Event callback that receives a string parameter (path, name, etc.).
+ * @param str Context string (file path, project path, scene path, asset path)
+ * @param userData User data passed during registration
+ */
+typedef void (*StringEventCallback)(const char* str, void* userData);
+
+/**
+ * @brief Callback for platform-specific packaging events.
+ * @param platform Platform enum value (see Platform in SystemTypes.h)
+ * @param userData User data passed during registration
+ */
+typedef void (*PlatformEventCallback)(int32_t platform, void* userData);
+
+/**
+ * @brief Callback for packaging completion with success/failure status.
+ * @param platform Platform enum value that was packaged
+ * @param success true if packaging succeeded, false if it failed
+ * @param userData User data passed during registration
+ */
+typedef void (*PackageFinishedCallback)(int32_t platform, bool success, void* userData);
+
+/**
+ * @brief Callback for play mode state changes.
+ * @param state Play mode state: 0=Enter, 1=Exit, 2=Eject
+ * @param userData User data passed during registration
+ */
+typedef void (*PlayModeCallback)(int32_t state, void* userData);
+
+/**
+ * @brief Draw callback for custom top-level menus.
+ *
+ * Called inside ImGui::BeginMenu/EndMenu. Use ImGui::MenuItem() etc. inside.
+ * @param userData User data passed during registration
+ */
+typedef void (*TopLevelMenuDrawCallback)(void* userData);
+
+/**
+ * @brief Draw callback for custom toolbar items.
+ *
+ * Called inside the viewport toolbar area. Use ImGui widgets to draw controls.
+ * @param userData User data passed during registration
+ */
+typedef void (*ToolbarDrawCallback)(void* userData);
+
+/**
  * @brief Unique identifier for tracking hooks.
  *
  * Use GenerateHookId() to create from addon ID or Lua script UUID.
@@ -194,6 +245,102 @@ struct EditorUIHooks
         MenuCallback callback,
         void* userData
     );
+
+    // ===== Top-Level Menus =====
+
+    /**
+     * @brief Add a custom top-level menu to the editor viewport bar.
+     *
+     * The drawFunc is called inside ImGui::BeginMenu/EndMenu.
+     * Use ImGui::MenuItem(), ImGui::Separator(), etc. inside.
+     *
+     * @param hookId Unique identifier for this hook (for cleanup)
+     * @param menuName Display name for the top-level menu button
+     * @param drawFunc Function called to draw menu contents
+     * @param userData User data passed to drawFunc
+     */
+    void (*AddTopLevelMenuItem)(HookId hookId, const char* menuName,
+                                TopLevelMenuDrawCallback drawFunc, void* userData);
+
+    /**
+     * @brief Remove a previously added top-level menu.
+     * @param hookId Hook identifier used during registration
+     * @param menuName Name of the menu to remove
+     */
+    void (*RemoveTopLevelMenuItem)(HookId hookId, const char* menuName);
+
+    // ===== Toolbar =====
+
+    /**
+     * @brief Add a custom item to the editor viewport toolbar.
+     * @param hookId Unique identifier for this hook (for cleanup)
+     * @param itemName Unique name for the toolbar item
+     * @param drawFunc Function called to draw toolbar content (buttons, etc.)
+     * @param userData User data passed to drawFunc
+     */
+    void (*AddToolbarItem)(HookId hookId, const char* itemName,
+                           ToolbarDrawCallback drawFunc, void* userData);
+
+    /**
+     * @brief Remove a previously added toolbar item.
+     * @param hookId Hook identifier used during registration
+     * @param itemName Name of the toolbar item to remove
+     */
+    void (*RemoveToolbarItem)(HookId hookId, const char* itemName);
+
+    // ===== Project Lifecycle Events =====
+
+    /** @brief Register callback for when a project is opened. Receives project path. */
+    void (*RegisterOnProjectOpen)(HookId hookId, StringEventCallback cb, void* userData);
+
+    /** @brief Register callback for when a project is about to close. Receives project path. */
+    void (*RegisterOnProjectClose)(HookId hookId, StringEventCallback cb, void* userData);
+
+    /** @brief Register callback for when the project/scene is saved. Receives file path. */
+    void (*RegisterOnProjectSave)(HookId hookId, StringEventCallback cb, void* userData);
+
+    // ===== Scene Lifecycle Events =====
+
+    /** @brief Register callback for when a scene is opened for editing. Receives scene path. */
+    void (*RegisterOnSceneOpen)(HookId hookId, StringEventCallback cb, void* userData);
+
+    /** @brief Register callback for when a scene is closed. Receives scene path. */
+    void (*RegisterOnSceneClose)(HookId hookId, StringEventCallback cb, void* userData);
+
+    // ===== Packaging/Build Events =====
+
+    /** @brief Register callback for when packaging starts. Receives platform enum. */
+    void (*RegisterOnPackageStarted)(HookId hookId, PlatformEventCallback cb, void* userData);
+
+    /** @brief Register callback for when packaging finishes. Receives platform and success. */
+    void (*RegisterOnPackageFinished)(HookId hookId, PackageFinishedCallback cb, void* userData);
+
+    // ===== Editor State Events =====
+
+    /** @brief Register callback for when the selected node(s) change in the editor. */
+    void (*RegisterOnSelectionChanged)(HookId hookId, EventCallback cb, void* userData);
+
+    /** @brief Register callback for Play-In-Editor state changes (Enter/Exit/Eject). */
+    void (*RegisterOnPlayModeChanged)(HookId hookId, PlayModeCallback cb, void* userData);
+
+    /** @brief Register callback for when the editor is shutting down. Called before cleanup. */
+    void (*RegisterOnEditorShutdown)(HookId hookId, EventCallback cb, void* userData);
+
+    // ===== Asset Pipeline Events =====
+
+    /** @brief Register callback for when an asset is imported. Receives asset path. */
+    void (*RegisterOnAssetImported)(HookId hookId, StringEventCallback cb, void* userData);
+
+    /** @brief Register callback for when an asset is deleted. Receives asset path. */
+    void (*RegisterOnAssetDeleted)(HookId hookId, StringEventCallback cb, void* userData);
+
+    /** @brief Register callback for when an asset is saved. Receives asset path. */
+    void (*RegisterOnAssetSaved)(HookId hookId, StringEventCallback cb, void* userData);
+
+    // ===== Undo/Redo =====
+
+    /** @brief Register callback for when an undo or redo operation is performed. */
+    void (*RegisterOnUndoRedo)(HookId hookId, EventCallback cb, void* userData);
 
     // ===== Cleanup =====
 

@@ -146,6 +146,12 @@ void EditorMain(int32_t argc, char** argv)
         GetProjectSelectWindow()->Open();
     }
 
+    // Fire OnEditorReady on all loaded plugins
+    if (NativeAddonManager::Get() != nullptr)
+    {
+        NativeAddonManager::Get()->CallOnEditorReady();
+    }
+
     Renderer::Get()->EnableConsole(true);
     Renderer::Get()->EnableStatsOverlay(false);
 
@@ -206,6 +212,12 @@ void EditorMain(int32_t argc, char** argv)
         {
             OctPostUpdate();
         }
+    }
+
+    // Fire OnEditorShutdown before cleanup
+    if (EditorUIHookManager::Get() != nullptr)
+    {
+        EditorUIHookManager::Get()->FireOnEditorShutdown();
     }
 
     NativeAddonManager::Destroy();

@@ -49,7 +49,7 @@ The `package.json` file must include a `native` block to enable native code supp
         "sourceDir": "Source",
         "binaryName": "myaddon",
         "entrySymbol": "OctavePlugin_GetDesc",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```
@@ -189,6 +189,10 @@ extern "C" OCTAVE_PLUGIN_API int OctavePlugin_GetDesc(OctavePluginDesc* desc)
     desc->RegisterScriptFuncs = RegisterScriptFuncs;
     desc->RegisterEditorUI = nullptr;  // See "Extending the Editor UI" section
 
+    // Editor lifecycle hooks (API v2+, set to nullptr if not needed)
+    desc->OnEditorPreInit = nullptr;   // Before editor ImGui is fully initialized
+    desc->OnEditorReady = nullptr;     // After editor is fully initialized
+
     return 0;  // Success
 }
 ```
@@ -222,8 +226,14 @@ struct OctavePluginDesc
 
     // Editor UI extension (editor builds only, set to nullptr otherwise)
     void (*RegisterEditorUI)(EditorUIHooks* hooks, uint64_t hookId);
+
+    // Editor lifecycle callbacks (API version 2+, editor builds only)
+    void (*OnEditorPreInit)();   // Called before editor ImGui is fully initialized
+    void (*OnEditorReady)();     // Called after editor is fully initialized, before main loop
 };
 ```
+
+> **API Version Note:** The `OnEditorPreInit` and `OnEditorReady` fields were added in API version 2. Plugins built with API version 1 are still compatible - the engine zeros out these fields automatically.
 
 ### Tick Callbacks
 
@@ -671,6 +681,213 @@ static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
 
 ---
 
+## Editor Lifecycle Hooks
+
+In addition to the UI extension hooks above, addons can register for editor lifecycle events. These hooks fire when specific editor actions occur (project open/close, scene changes, packaging, etc.), enabling addons to react to editor state changes without polling.
+
+All lifecycle hooks are registered through the `EditorUIHooks` struct in your `RegisterEditorUI` callback. Each registration takes a `HookId` for automatic cleanup on unload.
+
+### Editor Init Hooks (`OctavePluginDesc`)
+
+These two hooks are set directly in `OctavePluginDesc`, not via `EditorUIHooks`:
+
+| Callback | When Fired | Use Case |
+|----------|-----------|----------|
+| `OnEditorPreInit` | Before editor ImGui is fully initialized | Custom fonts, ImGui config flags |
+| `OnEditorReady` | After editor is fully initialized, before main loop | Query project state, open windows |
+
+```cpp
+static void OnEditorPreInit()
+{
+    // ImGui context exists but UI is not yet fully configured
+    // Add custom fonts, set ImGui config flags, etc.
+}
+
+static void OnEditorReady()
+{
+    // Editor is fully up - safe to query project state, open windows, etc.
+}
+
+extern "C" OCTAVE_PLUGIN_API int OctavePlugin_GetDesc(OctavePluginDesc* desc)
+{
+    // ... other fields ...
+    desc->OnEditorPreInit = OnEditorPreInit;
+    desc->OnEditorReady = OnEditorReady;
+    return 0;
+}
+```
+
+### Project Lifecycle Events
+
+| Hook | Callback Type | Parameter | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnProjectOpen` | `StringEventCallback` | Project path | After a project is opened |
+| `RegisterOnProjectClose` | `StringEventCallback` | Project path | Before a project is closed |
+| `RegisterOnProjectSave` | `StringEventCallback` | File path | After a project/scene is saved |
+
+```cpp
+static void RegisterEditorUI(EditorUIHooks* hooks, uint64_t hookId)
+{
+    hooks->RegisterOnProjectOpen(hookId, [](const char* path, void*) {
+        LogDebug("Project opened: %s", path);
+    }, nullptr);
+
+    hooks->RegisterOnProjectClose(hookId, [](const char* path, void*) {
+        LogDebug("Project closing: %s", path);
+    }, nullptr);
+
+    hooks->RegisterOnProjectSave(hookId, [](const char* path, void*) {
+        LogDebug("Project saved: %s", path);
+    }, nullptr);
+}
+```
+
+### Scene Lifecycle Events
+
+| Hook | Callback Type | Parameter | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnSceneOpen` | `StringEventCallback` | Scene name | After a scene is opened for editing |
+| `RegisterOnSceneClose` | `StringEventCallback` | Scene name | Before a scene is closed |
+
+```cpp
+hooks->RegisterOnSceneOpen(hookId, [](const char* scene, void*) {
+    LogDebug("Scene opened: %s", scene);
+}, nullptr);
+
+hooks->RegisterOnSceneClose(hookId, [](const char* scene, void*) {
+    LogDebug("Scene closing: %s", scene);
+}, nullptr);
+```
+
+### Packaging/Build Events
+
+| Hook | Callback Type | Parameters | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnPackageStarted` | `PlatformEventCallback` | Platform (int32_t) | Before build begins |
+| `RegisterOnPackageFinished` | `PackageFinishedCallback` | Platform, success (bool) | After build completes or fails |
+
+```cpp
+hooks->RegisterOnPackageStarted(hookId, [](int32_t platform, void*) {
+    LogDebug("Build starting for platform %d", platform);
+    // Pre-build validation here
+}, nullptr);
+
+hooks->RegisterOnPackageFinished(hookId, [](int32_t platform, bool success, void*) {
+    if (success)
+        LogDebug("Build succeeded for platform %d", platform);
+    else
+        LogError("Build failed for platform %d", platform);
+}, nullptr);
+```
+
+### Editor State Events
+
+| Hook | Callback Type | Parameter | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnSelectionChanged` | `EventCallback` | (none) | When the selected node changes |
+| `RegisterOnPlayModeChanged` | `PlayModeCallback` | State: 0=Enter, 1=Exit, 2=Eject | When PIE state changes |
+| `RegisterOnEditorShutdown` | `EventCallback` | (none) | Before editor shuts down |
+
+```cpp
+hooks->RegisterOnSelectionChanged(hookId, [](void*) {
+    LogDebug("Selection changed");
+    // Query current selection via editor API
+}, nullptr);
+
+hooks->RegisterOnPlayModeChanged(hookId, [](int32_t state, void*) {
+    const char* names[] = { "Enter", "Exit", "Eject" };
+    LogDebug("Play mode: %s", names[state]);
+}, nullptr);
+
+hooks->RegisterOnEditorShutdown(hookId, [](void*) {
+    LogDebug("Editor shutting down - saving addon state");
+}, nullptr);
+```
+
+### Asset Pipeline Events
+
+| Hook | Callback Type | Parameter | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnAssetImported` | `StringEventCallback` | Asset name | After an asset is imported |
+| `RegisterOnAssetDeleted` | `StringEventCallback` | Asset name | After an asset is deleted |
+| `RegisterOnAssetSaved` | `StringEventCallback` | Asset name | After an asset is saved |
+
+```cpp
+hooks->RegisterOnAssetImported(hookId, [](const char* name, void*) {
+    LogDebug("Asset imported: %s", name);
+}, nullptr);
+
+hooks->RegisterOnAssetDeleted(hookId, [](const char* name, void*) {
+    LogDebug("Asset deleted: %s", name);
+}, nullptr);
+
+hooks->RegisterOnAssetSaved(hookId, [](const char* name, void*) {
+    LogDebug("Asset saved: %s", name);
+}, nullptr);
+```
+
+### Undo/Redo Events
+
+| Hook | Callback Type | Parameter | When Fired |
+|------|--------------|-----------|-----------|
+| `RegisterOnUndoRedo` | `EventCallback` | (none) | After an undo or redo operation |
+
+```cpp
+hooks->RegisterOnUndoRedo(hookId, [](void*) {
+    LogDebug("Undo/Redo performed - refreshing addon state");
+}, nullptr);
+```
+
+### Top-Level Menus
+
+Add a custom top-level menu to the editor viewport bar alongside File, Edit, View, etc.
+
+| Hook | When Called |
+|------|-----------|
+| `AddTopLevelMenuItem` | Draws custom menu contents inside ImGui popup |
+| `RemoveTopLevelMenuItem` | Removes a previously added top-level menu |
+
+```cpp
+hooks->AddTopLevelMenuItem(hookId, "My Addon", [](void*) {
+    if (ImGui::MenuItem("Open Dashboard")) { /* ... */ }
+    if (ImGui::MenuItem("Settings")) { /* ... */ }
+    ImGui::Separator();
+    if (ImGui::MenuItem("About")) { /* ... */ }
+}, nullptr);
+```
+
+### Toolbar Items
+
+Add custom items to the editor viewport toolbar (next to the Play button).
+
+| Hook | When Called |
+|------|-----------|
+| `AddToolbarItem` | Draws custom toolbar widgets inline |
+| `RemoveToolbarItem` | Removes a previously added toolbar item |
+
+```cpp
+hooks->AddToolbarItem(hookId, "MyToolbarButton", [](void*) {
+    if (ImGui::Button("Quick Build"))
+    {
+        // Trigger build action
+    }
+}, nullptr);
+```
+
+### Callback Type Reference
+
+| Type | Signature | Used By |
+|------|-----------|---------|
+| `EventCallback` | `void(void* userData)` | Selection, Shutdown, UndoRedo |
+| `StringEventCallback` | `void(const char* str, void* userData)` | Project, Scene, Asset events |
+| `PlatformEventCallback` | `void(int32_t platform, void* userData)` | PackageStarted |
+| `PackageFinishedCallback` | `void(int32_t platform, bool success, void* userData)` | PackageFinished |
+| `PlayModeCallback` | `void(int32_t state, void* userData)` | PlayModeChanged |
+| `TopLevelMenuDrawCallback` | `void(void* userData)` | Top-level menus |
+| `ToolbarDrawCallback` | `void(void* userData)` | Toolbar items |
+
+---
+
 ## Exposing Lua Functions
 
 Add custom functions callable from Lua scripts:
@@ -955,7 +1172,7 @@ Here's a complete native addon example with tick callbacks:
         "target": "engine",
         "sourceDir": "Source",
         "binaryName": "hellonative",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```
@@ -1024,6 +1241,10 @@ extern "C" OCTAVE_PLUGIN_API int OctavePlugin_GetDesc(OctavePluginDesc* desc)
     desc->RegisterScriptFuncs = nullptr;
     desc->RegisterEditorUI = nullptr;
 
+    // Editor lifecycle (API v2+)
+    desc->OnEditorPreInit = nullptr;
+    desc->OnEditorReady = nullptr;
+
     return 0;
 }
 ```
@@ -1035,3 +1256,25 @@ extern "C" OCTAVE_PLUGIN_API int OctavePlugin_GetDesc(OctavePluginDesc* desc)
 - [Addons Documentation](../Info/Addons.md) - General addon system
 - [Templates Documentation](../Info/Templates.md) - Project templates
 - [Lua Scripting Guide](../Scripting/LuaGuide.md) - Lua API reference
+
+### Examples
+
+- [Custom Menu Item](Examples/CustomMenuItem.md) - Adding menu items to existing menus
+- [Custom Debug Window](Examples/CustomDebugWindow.md) - Creating dockable windows
+- [Custom Inspector](Examples/CustomScriptInspector.md) - Custom node inspectors
+- [Custom Context Menu](Examples/CustomContextMenuItem.md) - Right-click context menus
+- [Rotator3D](Examples/Rotator3D.md) - Gameplay tick example
+
+### Editor Hook Examples
+
+- [Top Level Menu](Examples/Editor/TopLevelMenu.md) - Custom top-level menu in the viewport bar
+- [Packaging Hooks](Examples/Editor/PackagingHooks.md) - Pre/post build validation
+- [Project Lifecycle](Examples/Editor/ProjectLifecycle.md) - Project open/close/save events
+- [Editor Init Hooks](Examples/Editor/EditorInitHooks.md) - OnEditorPreInit and OnEditorReady
+- [Selection Handler](Examples/Editor/SelectionHandler.md) - Reacting to selection changes
+- [Play Mode Hooks](Examples/Editor/PlayModeHooks.md) - PIE state change events
+- [Scene Lifecycle](Examples/Editor/SceneLifecycle.md) - Scene open/close events
+- [Asset Pipeline Hooks](Examples/Editor/AssetPipelineHooks.md) - Asset import/delete/save events
+- [Toolbar Extension](Examples/Editor/ToolbarExtension.md) - Custom toolbar buttons
+- [Undo/Redo Hook](Examples/Editor/UndoRedoHook.md) - Syncing state with undo/redo
+- [Editor Shutdown Hook](Examples/Editor/EditorShutdownHook.md) - Cleanup before editor exit

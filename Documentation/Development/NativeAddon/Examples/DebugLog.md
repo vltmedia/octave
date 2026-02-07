@@ -31,7 +31,7 @@ This example demonstrates:
         "target": "editor",
         "sourceDir": "Source",
         "binaryName": "debuglog",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```

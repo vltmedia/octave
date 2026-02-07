@@ -29,7 +29,7 @@ This example demonstrates:
         "target": "editor",
         "sourceDir": "Source",
         "binaryName": "customtheme",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```

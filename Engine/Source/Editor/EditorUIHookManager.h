@@ -69,6 +69,78 @@ struct RegisteredContextItem
 };
 
 /**
+ * @brief Registered event callback (generic, no extra params).
+ */
+struct RegisteredEventCallback
+{
+    HookId mHookId;
+    EventCallback mCallback;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered string event callback.
+ */
+struct RegisteredStringEventCallback
+{
+    HookId mHookId;
+    StringEventCallback mCallback;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered platform event callback.
+ */
+struct RegisteredPlatformEventCallback
+{
+    HookId mHookId;
+    PlatformEventCallback mCallback;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered package finished callback.
+ */
+struct RegisteredPackageFinishedCallback
+{
+    HookId mHookId;
+    PackageFinishedCallback mCallback;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered play mode callback.
+ */
+struct RegisteredPlayModeCallback
+{
+    HookId mHookId;
+    PlayModeCallback mCallback;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered top-level menu.
+ */
+struct RegisteredTopLevelMenu
+{
+    HookId mHookId;
+    std::string mMenuName;
+    TopLevelMenuDrawCallback mDrawFunc;
+    void* mUserData;
+};
+
+/**
+ * @brief Registered toolbar item.
+ */
+struct RegisteredToolbarItem
+{
+    HookId mHookId;
+    std::string mItemName;
+    ToolbarDrawCallback mDrawFunc;
+    void* mUserData;
+};
+
+/**
  * @brief Singleton manager for editor UI hooks.
  *
  * Stores all registered hooks and provides rendering helpers.
@@ -152,6 +224,37 @@ public:
      */
     void DrawAssetContextItems(const std::string& assetType);
 
+    // ===== Top-Level Menus =====
+
+    /**
+     * @brief Draw all registered top-level menus in the viewport bar.
+     */
+    void DrawTopLevelMenus();
+
+    // ===== Toolbar =====
+
+    /**
+     * @brief Draw all registered toolbar items.
+     */
+    void DrawToolbarItems();
+
+    // ===== Event Dispatchers =====
+
+    void FireOnProjectOpen(const char* projectPath);
+    void FireOnProjectClose(const char* projectPath);
+    void FireOnProjectSave(const char* filePath);
+    void FireOnSceneOpen(const char* scenePath);
+    void FireOnSceneClose(const char* scenePath);
+    void FireOnPackageStarted(int32_t platform);
+    void FireOnPackageFinished(int32_t platform, bool success);
+    void FireOnSelectionChanged();
+    void FireOnPlayModeChanged(int32_t state);
+    void FireOnEditorShutdown();
+    void FireOnAssetImported(const char* assetPath);
+    void FireOnAssetDeleted(const char* assetPath);
+    void FireOnAssetSaved(const char* assetPath);
+    void FireOnUndoRedo();
+
     // ===== Cleanup =====
 
     /**
@@ -171,6 +274,24 @@ private:
     std::vector<RegisteredWindow> mWindows;
     std::vector<RegisteredInspector> mInspectors;
     std::vector<RegisteredContextItem> mContextItems;
+
+    // New hook storage
+    std::vector<RegisteredTopLevelMenu> mTopLevelMenus;
+    std::vector<RegisteredToolbarItem> mToolbarItems;
+    std::vector<RegisteredStringEventCallback> mOnProjectOpen;
+    std::vector<RegisteredStringEventCallback> mOnProjectClose;
+    std::vector<RegisteredStringEventCallback> mOnProjectSave;
+    std::vector<RegisteredStringEventCallback> mOnSceneOpen;
+    std::vector<RegisteredStringEventCallback> mOnSceneClose;
+    std::vector<RegisteredPlatformEventCallback> mOnPackageStarted;
+    std::vector<RegisteredPackageFinishedCallback> mOnPackageFinished;
+    std::vector<RegisteredEventCallback> mOnSelectionChanged;
+    std::vector<RegisteredPlayModeCallback> mOnPlayModeChanged;
+    std::vector<RegisteredEventCallback> mOnEditorShutdown;
+    std::vector<RegisteredStringEventCallback> mOnAssetImported;
+    std::vector<RegisteredStringEventCallback> mOnAssetDeleted;
+    std::vector<RegisteredStringEventCallback> mOnAssetSaved;
+    std::vector<RegisteredEventCallback> mOnUndoRedo;
 
     // Empty vector for returning when menu not found
     std::vector<RegisteredMenuItem> mEmptyMenuItems;

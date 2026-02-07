@@ -30,6 +30,7 @@
 #include "Script.h"
 #include "Addons/AddonCreator.h"
 #include "Input/Input.h"
+#include "EditorUIHookManager.h"
 
 static EditorState sEditorState;
 
@@ -578,6 +579,10 @@ void EditorState::BeginPlayInEditor()
         ResolveAllNodePathsRecursive(clonedRoot.Get());
         GetWorld(0)->SetRootNode(clonedRoot.Get());
     }
+
+    // Fire OnPlayModeChanged(0 = Enter)
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(0);
 }
 
 void EditorState::EndPlayInEditor()
@@ -633,6 +638,10 @@ void EditorState::EndPlayInEditor()
     {
         GetWorld(0)->GetActiveCamera()->SetTransform(cameraTransform);
     }
+
+    // Fire OnPlayModeChanged(1 = Exit)
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(1);
 }
 
 void EditorState::EjectPlayInEditor()
@@ -658,6 +667,10 @@ void EditorState::EjectPlayInEditor()
         ShowEditorUi(true);
         mEjected = true;
         mHasEjectedOnce = true;
+
+        // Fire OnPlayModeChanged(2 = Eject)
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr) hookMgr->FireOnPlayModeChanged(2);
     }
 }
 
@@ -969,6 +982,14 @@ void EditorState::OpenEditScene(Scene* scene)
     OCT_ASSERT(editSceneIdx != -1);
 
     OpenEditScene(editSceneIdx);
+
+    // Fire OnSceneOpen hook
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr)
+    {
+        const char* sceneName = scene ? scene->GetName().c_str() : "";
+        hookMgr->FireOnSceneOpen(sceneName);
+    }
 }
 
 void EditorState::OpenEditScene(int32_t idx)
@@ -1160,6 +1181,15 @@ void EditorState::CloseEditScene(int32_t idx)
 
     if (idx >= 0 && idx < int32_t(mEditScenes.size()))
     {
+        // Fire OnSceneClose hook before destroying
+        EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+        if (hookMgr != nullptr)
+        {
+            Scene* scene = mEditScenes[idx].mSceneAsset.Get<Scene>();
+            const char* sceneName = scene ? scene->GetName().c_str() : "";
+            hookMgr->FireOnSceneClose(sceneName);
+        }
+
         if (idx == mEditSceneIndex)
         {
             // Is this the active EditScene? If so, shelve it first.
@@ -1610,6 +1640,14 @@ void EditorState::CaptureAndSaveScene(AssetStub* stub, Node* rootNode)
     }
 
     AssetManager::Get()->SaveAsset(*stub);
+
+    // Fire OnAssetSaved and OnProjectSave hooks
+    EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
+    if (hookMgr != nullptr)
+    {
+        hookMgr->FireOnAssetSaved(stub->mName.c_str());
+        hookMgr->FireOnProjectSave(stub->mName.c_str());
+    }
 
     if (hasSavedPos)
     {

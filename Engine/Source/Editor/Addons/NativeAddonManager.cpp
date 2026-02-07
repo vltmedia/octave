@@ -1216,13 +1216,20 @@ bool NativeAddonManager::LoadNativeAddon(const std::string& addonId, std::string
         return false;
     }
 
-    // Verify API version
-    if (desc.apiVersion != OCTAVE_PLUGIN_API_VERSION)
+    // Verify API version (accept version 1 or 2 for backward compatibility)
+    if (desc.apiVersion < 1 || desc.apiVersion > OCTAVE_PLUGIN_API_VERSION)
     {
         MOD_Unload(handle);
         outError = "API version mismatch: plugin=" + std::to_string(desc.apiVersion) +
-                   ", expected=" + std::to_string(OCTAVE_PLUGIN_API_VERSION);
+                   ", max supported=" + std::to_string(OCTAVE_PLUGIN_API_VERSION);
         return false;
+    }
+
+    // For v1 plugins, zero out the v2 fields they don't know about
+    if (desc.apiVersion < 2)
+    {
+        desc.OnEditorPreInit = nullptr;
+        desc.OnEditorReady = nullptr;
     }
 
     // Call OnLoad
@@ -1373,6 +1380,9 @@ void NativeAddonManager::ReloadAllNativeAddons()
         }
     }
 
+    // Call OnEditorPreInit on newly loaded plugins
+    CallOnEditorPreInit();
+
     LogDebug("Finished reloading native addons");
 }
 
@@ -1404,6 +1414,36 @@ void NativeAddonManager::TickEditorAllPlugins(float deltaTime)
             state.mDesc.TickEditor != nullptr)
         {
             state.mDesc.TickEditor(deltaTime);
+        }
+    }
+}
+
+void NativeAddonManager::CallOnEditorPreInit()
+{
+    for (auto& pair : mStates)
+    {
+        NativeAddonState& state = pair.second;
+
+        if (state.mModuleHandle != nullptr &&
+            state.mDescValid &&
+            state.mDesc.OnEditorPreInit != nullptr)
+        {
+            state.mDesc.OnEditorPreInit();
+        }
+    }
+}
+
+void NativeAddonManager::CallOnEditorReady()
+{
+    for (auto& pair : mStates)
+    {
+        NativeAddonState& state = pair.second;
+
+        if (state.mModuleHandle != nullptr &&
+            state.mDescValid &&
+            state.mDesc.OnEditorReady != nullptr)
+        {
+            state.mDesc.OnEditorReady();
         }
     }
 }
@@ -1705,6 +1745,8 @@ bool NativeAddonManager::WriteTemplateSourceFile(const std::string& path,
     ss << "#else\n";
     ss << "    desc->RegisterEditorUI = nullptr;\n";
     ss << "#endif\n";
+    ss << "    desc->OnEditorPreInit = nullptr;\n";
+    ss << "    desc->OnEditorReady = nullptr;\n";
     ss << "    return 0;\n";
     ss << "}\n";
 

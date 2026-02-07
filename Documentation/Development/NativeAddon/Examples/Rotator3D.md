@@ -30,7 +30,7 @@ This example demonstrates:
         "target": "engine",
         "sourceDir": "Source",
         "binaryName": "Rotator3D",
-        "apiVersion": 1
+        "apiVersion": 2
     }
 }
 ```

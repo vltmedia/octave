@@ -177,6 +177,16 @@ public:
      */
     void TickEditorAllPlugins(float deltaTime);
 
+    /**
+     * @brief Call OnEditorPreInit on all loaded plugins that implement it.
+     */
+    void CallOnEditorPreInit();
+
+    /**
+     * @brief Call OnEditorReady on all loaded plugins that implement it.
+     */
+    void CallOnEditorReady();
+
     // ===== State Queries =====
 
     /**
