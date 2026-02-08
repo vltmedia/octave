@@ -3251,7 +3251,18 @@ void ActionManager::ImportScene(const SceneImportOptions& options)
 
                             if (isReimport && textureToAssign == nullptr)
                             {
-                                textureToAssign = LoadAsset<Texture>(assetName);
+                                if (options.mReimportTextures)
+                                {
+                                    if (existingStub)
+                                    {
+                                        AssetManager::Get()->PurgeAsset(assetName.c_str());
+                                        existingStub = nullptr;
+                                    }
+                                }
+                                else
+                                {
+                                    textureToAssign = LoadAsset<Texture>(assetName);
+                                }
                             }
 
                             bool embeddedTexturePath = (texturePath.size() > 1 && texturePath[0] == '*');

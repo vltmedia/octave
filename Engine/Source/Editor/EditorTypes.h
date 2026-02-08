@@ -34,6 +34,7 @@ struct SceneImportOptions
     bool mApplyGltfExtras = true;
     ShadingModel mDefaultShadingModel = ShadingModel::Lit;
     VertexColorMode mDefaultVertexColorMode = VertexColorMode::None;
+    bool mReimportTextures = false;
     AssetStub* mReimportSceneStub = nullptr;  // Non-null = reimport mode
 };
 
