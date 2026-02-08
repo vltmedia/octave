@@ -71,6 +71,9 @@ EDITABLE_TYPES = {0, 1, 2, 3, 4, 5, 6, 7, 8, 11}
 # Module-level cache: { (scene_id, script_rel_path): [prop_dicts] }
 _script_prop_cache = {}
 
+# Flag to suppress the project-dir update callback during file load.
+_loading_file = False
+
 
 # ---------------------------------------------------------------------------
 # .oct file scanner
@@ -95,9 +98,9 @@ def scan_oct_header(filepath):
         return None
 
 
-def scan_project_assets(project_dir):
-    """Walk Assets/ and Packages/ for .oct files. Returns list of dicts."""
-    results = []
+def scan_project_assets(project_dir, progress_fn=None):
+    """Walk Assets/ and Packages/ for .oct files. Returns list of dicts.
+    progress_fn(current, total) is called per file if provided."""
     search_roots = []
     assets_dir = os.path.join(project_dir, "Assets")
     packages_dir = os.path.join(project_dir, "Packages")
@@ -106,25 +109,32 @@ def scan_project_assets(project_dir):
     if os.path.isdir(packages_dir):
         search_roots.append(packages_dir)
 
+    # Collect all .oct paths first (fast), then read headers with progress.
+    oct_files = []
     for root_dir in search_roots:
         for dirpath, _dirnames, filenames in os.walk(root_dir):
             for fname in filenames:
-                if not fname.lower().endswith(".oct"):
-                    continue
-                full_path = os.path.join(dirpath, fname)
-                header = scan_oct_header(full_path)
-                if header is None:
-                    continue
-                type_id, uuid = header
-                type_name = TYPE_ID_TO_NAME.get(type_id, "Unknown")
-                asset_name = os.path.splitext(fname)[0]
-                rel_path = os.path.relpath(full_path, project_dir).replace("\\", "/")
-                results.append({
-                    "name": asset_name,
-                    "type_name": type_name,
-                    "uuid": uuid,
-                    "relative_path": rel_path,
-                })
+                if fname.lower().endswith(".oct"):
+                    oct_files.append(os.path.join(dirpath, fname))
+
+    total = len(oct_files)
+    results = []
+    for i, full_path in enumerate(oct_files):
+        if progress_fn:
+            progress_fn(i, total)
+        header = scan_oct_header(full_path)
+        if header is None:
+            continue
+        type_id, uuid = header
+        type_name = TYPE_ID_TO_NAME.get(type_id, "Unknown")
+        asset_name = os.path.splitext(os.path.basename(full_path))[0]
+        rel_path = os.path.relpath(full_path, project_dir).replace("\\", "/")
+        results.append({
+            "name": asset_name,
+            "type_name": type_name,
+            "uuid": uuid,
+            "relative_path": rel_path,
+        })
     return results
 
 
@@ -571,9 +581,22 @@ def _do_refresh(scene):
     if not os.path.isdir(project_dir):
         return (0, 0)
 
+    wm = bpy.context.window_manager
+    window = bpy.context.window
+
+    # Show wait cursor, progress bar, and status text
+    if window:
+        window.cursor_set('WAIT')
+    wm.progress_begin(0, 1000)
+    bpy.context.workspace.status_text_set("Scanning Octave Project Directory...")
+
+    def _on_progress(current, total):
+        if total > 0:
+            wm.progress_update(int(current / total * 1000))
+
     # Refresh asset catalog
     scene.octave_asset_catalog.clear()
-    assets = scan_project_assets(project_dir)
+    assets = scan_project_assets(project_dir, progress_fn=_on_progress)
     for a in assets:
         item = scene.octave_asset_catalog.add()
         # Strip .oct extension — engine paths are e.g. "Assets/Models/SM_Cube"
@@ -592,11 +615,17 @@ def _do_refresh(scene):
         item = scene.octave_script_catalog.add()
         item.name = s
 
+    wm.progress_end()
+    bpy.context.workspace.status_text_set(None)
+    if window:
+        window.cursor_set('DEFAULT')
+
     return (len(assets), len(scripts))
 
 
 def _on_project_dir_changed(self, context):
-    _do_refresh(self)
+    if not _loading_file:
+        _do_refresh(self)
 
 
 # ---------------------------------------------------------------------------
@@ -899,6 +928,62 @@ def menu_func_export(self, context):
 
 
 # ---------------------------------------------------------------------------
+# Scan prompt shown after opening a file with a project directory set
+# ---------------------------------------------------------------------------
+
+class OCTAVE_OT_scan_prompt(Operator):
+    bl_idname = "octave.scan_prompt"
+    bl_label = "Octave Game Engine Connect"
+    bl_options = {'INTERNAL'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=420)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="An Octave project directory is set for this file.")
+        layout.label(text="The asset and script catalogs need to be scanned")
+        layout.label(text="before you can use the connector.")
+        layout.separator()
+        layout.label(text="You can also do this later with the Refresh button")
+        layout.label(text="in the OctaveEngine sidebar panel.")
+
+    def execute(self, context):
+        num_assets, num_scripts = _do_refresh(context.scene)
+        self.report({"INFO"}, f"Scanned project: {num_assets} assets, {num_scripts} scripts")
+        return {"FINISHED"}
+
+
+def _deferred_scan_prompt():
+    """Timer callback to show the scan prompt after file load."""
+    try:
+        if bpy.context.scene and bpy.context.scene.octave_project_dir:
+            bpy.ops.octave.scan_prompt('INVOKE_DEFAULT')
+    except RuntimeError:
+        pass
+    return None
+
+
+@bpy.app.handlers.persistent
+def _load_pre_handler(dummy):
+    global _loading_file
+    _loading_file = True
+
+
+@bpy.app.handlers.persistent
+def _load_post_handler(dummy):
+    global _loading_file
+    _loading_file = False
+
+    scene = bpy.context.scene
+    if scene and scene.octave_project_dir:
+        # Clear stale catalog data baked into the .blend file
+        scene.octave_asset_catalog.clear()
+        scene.octave_script_catalog.clear()
+        bpy.app.timers.register(_deferred_scan_prompt, first_interval=0.5)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -908,6 +993,7 @@ classes = (
     OctaveScriptPropValue,
     OctaveObjectProperties,
     OCTAVE_OT_refresh_script_props,
+    OCTAVE_OT_scan_prompt,
     OCTAVE_PT_scene_project,
     OCTAVE_PT_object_data,
     OCTAVE_OT_refresh_project,
@@ -936,8 +1022,16 @@ def register():
 
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
+    bpy.app.handlers.load_pre.append(_load_pre_handler)
+    bpy.app.handlers.load_post.append(_load_post_handler)
+
 
 def unregister():
+    if _load_post_handler in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_load_post_handler)
+    if _load_pre_handler in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(_load_pre_handler)
+
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
 
     del bpy.types.Scene.octave_script_catalog
