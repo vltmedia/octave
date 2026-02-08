@@ -2529,6 +2529,17 @@ static void ParseGltfExtrasFromDoc(const rapidjson::Document& doc, std::unordere
     }
 }
 
+static Property* FindScriptProperty(Script* script, const char* name)
+{
+    std::vector<Property>& props = script->GetScriptProperties();
+    for (uint32_t i = 0; i < props.size(); ++i)
+    {
+        if (props[i].mName == name)
+            return &props[i];
+    }
+    return nullptr;
+}
+
 static void ApplyScriptPropertyOverrides(Node* node, const OctaveNodeExtras& extras)
 {
     if (extras.mScriptPropsJson.empty() || extras.mScriptPropsTypesJson.empty())
@@ -2558,32 +2569,36 @@ static void ApplyScriptPropertyOverrides(Node* node, const OctaveNodeExtras& ext
         int datumTypeInt = typesDoc[key].GetInt();
         const rapidjson::Value& val = it->value;
 
+        Property* prop = FindScriptProperty(script, key);
+        if (prop == nullptr || prop->mType != static_cast<DatumType>(datumTypeInt))
+            continue;
+
         switch (static_cast<DatumType>(datumTypeInt))
         {
         case DatumType::Integer:
-            if (val.IsInt()) script->SetField(key, Datum((int32_t)val.GetInt()));
+            if (val.IsInt()) prop->SetInteger((int32_t)val.GetInt());
             break;
         case DatumType::Float:
-            if (val.IsNumber()) script->SetField(key, Datum((float)val.GetDouble()));
+            if (val.IsNumber()) prop->SetFloat((float)val.GetDouble());
             break;
         case DatumType::Bool:
-            if (val.IsBool()) script->SetField(key, Datum(val.GetBool()));
+            if (val.IsBool()) prop->SetBool(val.GetBool());
             break;
         case DatumType::String:
-            if (val.IsString()) script->SetField(key, Datum(std::string(val.GetString())));
+            if (val.IsString()) prop->SetString(val.GetString());
             break;
         case DatumType::Vector2D:
             if (val.IsArray() && val.Size() >= 2)
             {
                 glm::vec2 v((float)val[0].GetDouble(), (float)val[1].GetDouble());
-                script->SetField(key, Datum(v));
+                prop->SetVector2D(v);
             }
             break;
         case DatumType::Vector:
             if (val.IsArray() && val.Size() >= 3)
             {
                 glm::vec3 v((float)val[0].GetDouble(), (float)val[1].GetDouble(), (float)val[2].GetDouble());
-                script->SetField(key, Datum(v));
+                prop->SetVector(v);
             }
             break;
         case DatumType::Color:
@@ -2591,21 +2606,21 @@ static void ApplyScriptPropertyOverrides(Node* node, const OctaveNodeExtras& ext
             {
                 glm::vec4 v((float)val[0].GetDouble(), (float)val[1].GetDouble(),
                             (float)val[2].GetDouble(), (float)val[3].GetDouble());
-                script->SetField(key, Datum(v));
+                prop->SetColor(v);
             }
             break;
         case DatumType::Asset:
             if (val.IsString())
             {
                 Asset* asset = AssetManager::Get()->LoadAsset(val.GetString());
-                script->SetField(key, Datum(asset));
+                prop->SetAsset(asset);
             }
             break;
         case DatumType::Byte:
-            if (val.IsInt()) script->SetField(key, Datum((uint8_t)val.GetInt()));
+            if (val.IsInt()) prop->SetByte((uint8_t)val.GetInt());
             break;
         case DatumType::Short:
-            if (val.IsInt()) script->SetField(key, Datum((int16_t)val.GetInt()));
+            if (val.IsInt()) prop->SetShort((int16_t)val.GetInt());
             break;
         default:
             break;
