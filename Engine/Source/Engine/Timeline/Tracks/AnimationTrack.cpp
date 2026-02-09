@@ -30,17 +30,39 @@ void AnimationTrack::Evaluate(float time, Node* target, TimelineInstance* inst)
             continue;
 
         AnimationClip* clip = static_cast<AnimationClip*>(mClips[i]);
+        const std::string& animName = clip->GetAnimationName();
+        if (animName.empty())
+            continue;
 
         if (clip->ContainsTime(time))
         {
-            const std::string& animName = clip->GetAnimationName();
-            if (animName.empty())
-                continue;
-
-            float speed = clip->GetSpeed();
+            float localTime = clip->GetLocalTime(time);
             float weight = clip->GetWeight();
 
-            skelMesh->PlayAnimation(animName.c_str(), false, speed, weight);
+            // Ensure the animation is active
+            ActiveAnimation* active = skelMesh->FindActiveAnimation(animName.c_str());
+            if (active == nullptr)
+            {
+                skelMesh->PlayAnimation(animName.c_str(), false, 0.0f, weight);
+                active = skelMesh->FindActiveAnimation(animName.c_str());
+            }
+
+            if (active != nullptr)
+            {
+                // Drive the animation time directly from the timeline
+                active->mTime = localTime;
+                active->mWeight = weight;
+                active->mSpeed = 0.0f;
+            }
+        }
+        else
+        {
+            // Playhead is outside this clip — stop its animation if active
+            ActiveAnimation* active = skelMesh->FindActiveAnimation(animName.c_str());
+            if (active != nullptr)
+            {
+                skelMesh->StopAnimation(animName.c_str());
+            }
         }
     }
 }
