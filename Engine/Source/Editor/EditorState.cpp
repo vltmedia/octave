@@ -1,7 +1,9 @@
 #if EDITOR
 #include <vector>
+#include <algorithm>
 #include "EditorState.h"
 #include "EditorConstants.h"
+#include "Timeline/TimelineInstance.h"
 #include "ActionManager.h"
 #include "Nodes/Node.h"
 #include "Asset.h"
@@ -93,6 +95,12 @@ void EditorState::Shutdown()
 
     delete mPaintManager;
     mPaintManager = nullptr;
+
+    if (mTimelinePreviewInstance != nullptr)
+    {
+        delete mTimelinePreviewInstance;
+        mTimelinePreviewInstance = nullptr;
+    }
 
     mEditorCamera->SetWorld(nullptr, false);
     mEditorCamera->Destroy();
@@ -370,6 +378,8 @@ void EditorState::HandleNodeDestroy(Node* node)
     {
         InspectObject(nullptr, true, false);
     }
+
+    RemoveFromInspectHistory(node);
 
     if (mPaintManager)
     {
@@ -1480,6 +1490,25 @@ void EditorState::ClearInspectHistory()
     mInspectFuture.clear();
     mPrevInspectedObject = nullptr;
     mInspectedObject = nullptr;
+}
+
+void EditorState::RemoveFromInspectHistory(Object* obj)
+{
+    if (obj == nullptr)
+        return;
+
+    mInspectPast.erase(
+        std::remove(mInspectPast.begin(), mInspectPast.end(), obj),
+        mInspectPast.end());
+
+    mInspectFuture.erase(
+        std::remove(mInspectFuture.begin(), mInspectFuture.end(), obj),
+        mInspectFuture.end());
+
+    if (mPrevInspectedObject == obj)
+    {
+        mPrevInspectedObject = nullptr;
+    }
 }
 
 void EditorState::ProgressInspectFuture()

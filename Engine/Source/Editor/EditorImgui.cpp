@@ -29,6 +29,7 @@
 #include "Assets/MaterialBase.h"
 #include "Assets/MaterialInstance.h"
 #include "Assets/MaterialLite.h"
+#include "Assets/Timeline.h"
 
 #include "Viewport3d.h"
 #include "Viewport2d.h"
@@ -43,6 +44,7 @@
 #include "Addons/AddonsMenu.h"
 #include "EditorUIHookManager.h"
 #include "DebugLog/DebugLogWindow.h"
+#include "Timeline/TimelinePanel.h"
 #include "Preferences/General/GeneralModule.h"
 #include "Preferences/PreferencesManager.h"
 
@@ -1683,8 +1685,15 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                 if (ImGui::IsItemDeactivatedAfterEdit())
                 {
-                    prop.SetFloat(sOrigVal, i);
-                    am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                    {
+                        prop.SetFloat(sOrigVal, i);
+                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    }
+                    else
+                    {
+                        prop.SetFloat(propVal, i);
+                    }
                 }
                 else if (propVal != preVal)
                 {
@@ -1778,7 +1787,14 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                     {
                         if (sTempString != sOrigVal)
                         {
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, sTempString);
+                            if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                            {
+                                am->EXE_EditProperty(owner, ownerType, prop.mName, i, sTempString);
+                            }
+                            else
+                            {
+                                prop.SetString(sTempString, i);
+                            }
                         }
                     }
                 }
@@ -2387,6 +2403,15 @@ static void DrawScenePanel()
             if (inSubScene || nodeHasScene)
             {
                 ImGui::PopStyleColor();
+            }
+
+            // Drag source for node references (e.g. timeline track targets)
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+            {
+                Node* dragNode = node;
+                ImGui::SetDragDropPayload(DRAGDROP_NODE, &dragNode, sizeof(Node*));
+                ImGui::Text("%s", node->GetName().c_str());
+                ImGui::EndDragDropSource();
             }
 
             if (nodeSelected && GetEditorState()->mTrackSelectedNode)
@@ -3024,6 +3049,11 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                 sNewAssetType = Scene::GetStaticType();
                 showPopup = true;
             }
+            if (ImGui::Selectable("Timeline", false, ImGuiSelectableFlags_DontClosePopups))
+            {
+                sNewAssetType = Timeline::GetStaticType();
+                showPopup = true;
+            }
 
             ImGui::EndMenu();
 
@@ -3182,6 +3212,8 @@ static void DrawAssetsContextPopup(AssetStub* stub, AssetDir* dir)
                     assetName = "P_Particle";
                 else if (sNewAssetType == Scene::GetStaticType())
                     assetName = "SC_Scene";
+                else if (sNewAssetType == Timeline::GetStaticType())
+                    assetName = "TL_Timeline";
             }
 
             if (assetName != "" && sNewAssetType != INVALID_TYPE_ID)
@@ -3357,6 +3389,14 @@ static void DrawAssetBrowser(bool showFilter, bool interactive)
                         Scene* scene = stub->mAsset ? stub->mAsset->As<Scene>() : nullptr;
                         if (scene)
                             GetEditorState()->OpenEditScene(scene);
+                    }
+                    else if (stub->mType == Timeline::GetStaticType())
+                    {
+                        Timeline* timeline = stub->mAsset ? stub->mAsset->As<Timeline>() : nullptr;
+                        if (timeline)
+                        {
+                            OpenTimelineForEditing(timeline);
+                        }
                     }
                     else
                     {
@@ -4511,6 +4551,9 @@ static void DrawViewportPanel()
         if (ImGui::Selectable("Debug Log"))
             GetEditorState()->mShowBottomPane = !GetEditorState()->mShowBottomPane;
 
+        if (ImGui::Selectable("Timeline"))
+            GetEditorState()->mShowTimelinePanel = !GetEditorState()->mShowTimelinePanel;
+
         // Draw plugin menu items for View menu
         {
             EditorUIHookManager* hookMgr = EditorUIHookManager::Get();
@@ -5548,6 +5591,11 @@ void EditorImguiDraw()
 
         DrawViewportPanel();
         DrawDebugLogPanel();
+
+        if (GetEditorState()->mShowTimelinePanel)
+        {
+            DrawTimelinePanel();
+        }
 
         // Draw ImGuizmo gizmos for selected 3D nodes
         DrawImGuizmo();
