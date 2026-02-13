@@ -27,7 +27,9 @@ public:
 
     virtual bool SupportsKeyframes() const override { return true; }
     virtual uint32_t GetNumKeyframes() const override { return (uint32_t)mKeyframes.size(); }
+    virtual float GetKeyframeTime(uint32_t index) const override { return mKeyframes[index].mTime; }
     virtual void AddKeyframeAtTime(float localTime, Node* targetNode) override;
+    virtual void SetKeyframeTime(uint32_t index, float time) override;
     virtual void RemoveKeyframe(uint32_t index) override;
 
     const ScriptValueKeyframe& GetKeyframe(uint32_t index) const { return mKeyframes[index]; }

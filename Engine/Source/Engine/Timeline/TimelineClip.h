@@ -59,10 +59,16 @@ public:
 
     virtual bool SupportsKeyframes() const { return false; }
     virtual uint32_t GetNumKeyframes() const { return 0; }
+    virtual float GetKeyframeTime(uint32_t index) const { return 0.0f; }
     virtual void AddKeyframeAtTime(float localTime, Node* targetNode) {}
+    virtual void SetKeyframeTime(uint32_t index, float time) {}
     virtual void RemoveKeyframe(uint32_t index) {}
 
 protected:
+
+#if EDITOR
+    void GetKeyframeDisplayRange(uint32_t& outStart, uint32_t& outEnd) const;
+#endif
 
     float mStartTime = 0.0f;
     float mDuration = 1.0f;

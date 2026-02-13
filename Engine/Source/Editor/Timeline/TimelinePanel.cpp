@@ -115,6 +115,7 @@ void OpenTimelineForEditing(Timeline* timeline)
     state->mTimelinePlayheadTime = 0.0f;
     state->mTimelineSelectedTrack = -1;
     state->mTimelineSelectedClip = -1;
+    state->mTimelineSelectedKeyframe = -1;
 
     if (state->mTimelinePreviewInstance != nullptr)
     {
@@ -303,6 +304,7 @@ void DrawTimelinePanel()
         {
             state->mTimelineSelectedTrack = (int32_t)i;
             state->mTimelineSelectedClip = -1;
+            state->mTimelineSelectedKeyframe = -1;
             state->InspectObject(tracks[i], true, false);
             ImGui::OpenPopup("NodePickerPopup");
         }
@@ -341,12 +343,14 @@ void DrawTimelinePanel()
         {
             state->mTimelineSelectedTrack = (int32_t)i;
             state->mTimelineSelectedClip = -1;
+            state->mTimelineSelectedKeyframe = -1;
             state->InspectObject(tracks[i], true, false);
         }
         if (ImGui::IsItemClicked(1))
         {
             state->mTimelineSelectedTrack = (int32_t)i;
             state->mTimelineSelectedClip = -1;
+            state->mTimelineSelectedKeyframe = -1;
             ImGui::OpenPopup("TrackContextMenu");
         }
     }
@@ -499,6 +503,7 @@ void DrawTimelinePanel()
             {
                 state->mTimelineSelectedTrack = (int32_t)t;
                 state->mTimelineSelectedClip = (int32_t)c;
+                state->mTimelineSelectedKeyframe = -1;
                 state->InspectObject(clip, true, false);
             }
 
@@ -519,9 +524,63 @@ void DrawTimelinePanel()
             {
                 state->mTimelineSelectedTrack = (int32_t)t;
                 state->mTimelineSelectedClip = (int32_t)c;
+                state->mTimelineSelectedKeyframe = -1;
                 state->InspectObject(clip, true, false);
                 ImGui::OpenPopup("ClipContextMenu");
                 clipContextOpened = true;
+            }
+
+            // ========== Draw Keyframe Diamonds ==========
+            if (clip->SupportsKeyframes())
+            {
+                uint32_t numKf = clip->GetNumKeyframes();
+                for (uint32_t k = 0; k < numKf; ++k)
+                {
+                    float kfAbsTime = clip->GetStartTime() + clip->GetKeyframeTime(k);
+                    float kfX = clipAreaPos.x + TimeToPixel(kfAbsTime, zoom, scrollX);
+                    float kfCenterY = trackY + kTrackHeight / 2.0f;
+                    float halfSize = 4.0f;
+
+                    bool kfSelected = (isSelected && (int32_t)k == state->mTimelineSelectedKeyframe);
+
+                    ImVec2 diamondPoints[4] = {
+                        ImVec2(kfX, kfCenterY - halfSize),  // top
+                        ImVec2(kfX + halfSize, kfCenterY),  // right
+                        ImVec2(kfX, kfCenterY + halfSize),  // bottom
+                        ImVec2(kfX - halfSize, kfCenterY)   // left
+                    };
+
+                    ImU32 kfFillColor = kfSelected ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 200, 255);
+                    ImU32 kfOutlineColor = kfSelected ? IM_COL32(255, 255, 100, 255) : IM_COL32(150, 150, 150, 255);
+
+                    drawList->AddConvexPolyFilled(diamondPoints, 4, kfFillColor);
+                    drawList->AddPolyline(diamondPoints, 4, kfOutlineColor, ImDrawFlags_Closed, 1.0f);
+
+                    // Hit-test invisible button for keyframe
+                    ImGui::SetCursorScreenPos(ImVec2(kfX - halfSize, kfCenterY - halfSize));
+                    char kfBuf[48];
+                    snprintf(kfBuf, sizeof(kfBuf), "##kf%d_%d_%d", t, c, k);
+                    ImGui::SetNextItemAllowOverlap();
+                    if (ImGui::InvisibleButton(kfBuf, ImVec2(halfSize * 2.0f, halfSize * 2.0f)))
+                    {
+                        state->mTimelineSelectedTrack = (int32_t)t;
+                        state->mTimelineSelectedClip = (int32_t)c;
+                        state->mTimelineSelectedKeyframe = (int32_t)k;
+                        state->InspectObject(clip, true, false);
+                    }
+
+                    // Drag to move keyframe
+                    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(0) && !tracks[t]->IsLocked())
+                    {
+                        float dragDelta = ImGui::GetMouseDragDelta(0).x;
+                        float timeDelta = dragDelta / zoom;
+                        float newTime = clip->GetKeyframeTime(k) + timeDelta;
+                        newTime = SnapTime(newTime, snapInterval);
+                        newTime = glm::max(0.0f, newTime);
+                        clip->SetKeyframeTime(k, newTime);
+                        ImGui::ResetMouseDragDelta(0);
+                    }
+                }
             }
         }
     }

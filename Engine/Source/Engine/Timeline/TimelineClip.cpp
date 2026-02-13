@@ -1,6 +1,10 @@
 #include "Timeline/TimelineClip.h"
 #include "Utilities.h"
 
+#if EDITOR
+#include "EditorState.h"
+#endif
+
 FORCE_LINK_DEF(TimelineClip);
 DEFINE_FACTORY_MANAGER(TimelineClip);
 DEFINE_FACTORY(TimelineClip, TimelineClip);
@@ -54,6 +58,21 @@ float TimelineClip::GetLocalTime(float globalTime) const
     localTime += mClipInTime;
     return localTime;
 }
+
+#if EDITOR
+void TimelineClip::GetKeyframeDisplayRange(uint32_t& outStart, uint32_t& outEnd) const
+{
+    outStart = 0;
+    outEnd = GetNumKeyframes();
+
+    int32_t selKf = GetEditorState()->mTimelineSelectedKeyframe;
+    if (selKf >= 0 && (uint32_t)selKf < outEnd)
+    {
+        outStart = (uint32_t)selKf;
+        outEnd = outStart + 1;
+    }
+}
+#endif
 
 bool TimelineClip::OverlapsWith(const TimelineClip* other) const
 {

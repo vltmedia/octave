@@ -73,7 +73,11 @@ void ScriptValueClip::GatherProperties(std::vector<Property>& outProps)
 
     SCOPED_CATEGORY("Keyframes");
 
-    for (uint32_t i = 0; i < mKeyframes.size(); ++i)
+    uint32_t startIdx = 0;
+    uint32_t endIdx = 0;
+    GetKeyframeDisplayRange(startIdx, endIdx);
+
+    for (uint32_t i = startIdx; i < endIdx; ++i)
     {
         char timeName[32];
         snprintf(timeName, sizeof(timeName), "KF %d Time", i);
@@ -141,6 +145,14 @@ void ScriptValueClip::AddKeyframeAtTime(float localTime, Node* targetNode)
     }
 
     AddKeyframe(kf);
+}
+
+void ScriptValueClip::SetKeyframeTime(uint32_t index, float time)
+{
+    if (index < mKeyframes.size())
+    {
+        mKeyframes[index].mTime = time;
+    }
 }
 
 void ScriptValueClip::RemoveKeyframe(uint32_t index)

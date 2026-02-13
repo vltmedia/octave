@@ -174,6 +174,7 @@ struct EditorState
     float mTimelineSnapInterval = 0.1f;
     int32_t mTimelineSelectedTrack = -1;
     int32_t mTimelineSelectedClip = -1;
+    int32_t mTimelineSelectedKeyframe = -1;
 
     // ImGuizmo state
     ImGuizmo::OPERATION mGizmoOperation = ImGuizmo::TRANSLATE;
