@@ -700,21 +700,34 @@ void ActionManager::BuildData(Platform platform, bool embedded)
 
     // ( ) Run the makefile to compile the game.
     bool needCompile = true;
-    std::string prebuiltExeName = (platform == Platform::Windows) ? "Octave.exe" : "Octave.elf";
-
-    // If packaging for Windows or Linux in standalone editor, we can use the existing octave executables.
-    // But in headless mode, always compile since we're doing a full build.
-    if (standalone && !IsHeadless() &&
-        (platform == Platform::Windows || platform == Platform::Linux))
-    {
-        needCompile = !SYS_DoesFileExist(prebuiltExeName.c_str(), false);
-    }
 
     std::string buildProjName = standalone ? "Standalone" : projectName;
     std::string buildProjDir = standalone ? octaveDirectory+"Standalone/" : projectDir;
     std::string buildDstExeName = standalone ? "Octave" : projectName;
 
     bool useSteam = GetEngineConfig()->mPackageForSteam;
+
+    // Build the full path to the prebuilt Release executable so we don't
+    // accidentally pick up the editor exe from the working directory.
+    std::string prebuiltExePath;
+    if (platform == Platform::Windows)
+    {
+        prebuiltExePath = buildProjDir + "Build/Windows/x64/"
+            + (useSteam ? "ReleaseSteam/" : "Release/")
+            + "Octave.exe";
+    }
+    else if (platform == Platform::Linux)
+    {
+        prebuiltExePath = buildProjDir + "Build/Linux/Octave.elf";
+    }
+
+    // If packaging for Windows or Linux in standalone editor, we can use the existing octave executables.
+    // But in headless mode, always compile since we're doing a full build.
+    if (standalone && !IsHeadless() &&
+        (platform == Platform::Windows || platform == Platform::Linux))
+    {
+        needCompile = !SYS_DoesFileExist(prebuiltExePath.c_str(), false);
+    }
 
     LogWarning("[BUILD] needCompile=%d plat=%d", needCompile ? 1 : 0, (int)platform);
     if (needCompile)
@@ -915,7 +928,7 @@ void ActionManager::BuildData(Platform platform, bool embedded)
     if (!needCompile)
     {
         // Override exe path for uncompiled standalone builds
-        exeSrc = prebuiltExeName;
+        exeSrc = prebuiltExePath;
     }
 
 

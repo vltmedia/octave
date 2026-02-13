@@ -5526,6 +5526,11 @@ static void DrawImGuizmo2D()
 
 static std::string GetDefaultEditorFontPath()
 {
+
+    if (!SYS_DoesFileExist("Engine/Assets/Fonts/F_InterRegular18.ttf", false)) {
+        return "";
+    }
+
     return SYS_GetAbsolutePath("Engine/Assets/Fonts/F_InterRegular18.ttf");
 }
 
