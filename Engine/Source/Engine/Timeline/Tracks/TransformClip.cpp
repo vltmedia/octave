@@ -53,8 +53,8 @@ static bool HandleTransformClipEulerChange(Datum* datum, uint32_t index, const v
     Property* prop = static_cast<Property*>(datum);
     TransformClip* clip = static_cast<TransformClip*>(prop->mOwner);
 
-    // Accept the new euler value first
-    datum->SetValue(newValue, index, 1);
+    // Accept the new euler value first (use SetValueRaw to avoid re-triggering this handler)
+    datum->SetValueRaw(newValue, index);
 
     // Find which keyframe this is by parsing the property name "KF N Rot"
     const std::string& name = prop->mName;

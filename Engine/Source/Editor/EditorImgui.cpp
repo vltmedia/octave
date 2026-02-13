@@ -1666,8 +1666,15 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                     if (ImGui::IsItemDeactivatedAfterEdit())
                     {
-                        prop.SetInteger(sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                        {
+                            prop.SetInteger(sOrigVal, i);
+                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        }
+                        else
+                        {
+                            prop.SetInteger(propVal, i);
+                        }
                     }
                     else if (propVal != preVal)
                     {
@@ -1828,8 +1835,15 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                 if (ImGui::IsItemDeactivatedAfterEdit())
                 {
-                    prop.SetVector2D(sOrigVal, i);
-                    am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                    {
+                        prop.SetVector2D(sOrigVal, i);
+                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    }
+                    else
+                    {
+                        prop.SetVector2D(propVal, i);
+                    }
                 }
                 else if (propVal != preVal)
                 {
@@ -1857,15 +1871,22 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                 if (ImGui::IsItemDeactivatedAfterEdit())
                 {
-                    prop.SetVector(sOrigVal, i);
-
-                    // Handle edge case where Rotation property is reset so we need to recompute transform to update mRotationEuler.
-                    if (owner->As<Node3D>())
+                    if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
                     {
-                        owner->As<Node3D>()->UpdateTransform(false);
-                    }
+                        prop.SetVector(sOrigVal, i);
 
-                    am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        // Handle edge case where Rotation property is reset so we need to recompute transform to update mRotationEuler.
+                        if (owner->As<Node3D>())
+                        {
+                            owner->As<Node3D>()->UpdateTransform(false);
+                        }
+
+                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    }
+                    else
+                    {
+                        prop.SetVector(propVal, i);
+                    }
                 }
                 else if (propVal != preVal)
                 {
@@ -1890,8 +1911,15 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                 if (ImGui::IsItemDeactivatedAfterEdit())
                 {
-                    prop.SetColor(sOrigVal, i);
-                    am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                    {
+                        prop.SetColor(sOrigVal, i);
+                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    }
+                    else
+                    {
+                        prop.SetColor(propVal, i);
+                    }
                 }
                 else if (propVal != preVal)
                 {
@@ -1973,7 +2001,14 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                             propVal = newBitMask;
 
-                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                            if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                            {
+                                am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                            }
+                            else
+                            {
+                                prop.SetByte((uint8_t)propVal, i);
+                            }
                         }
 
                         ImGui::PopStyleColor();
@@ -1994,8 +2029,15 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
 
                     if (ImGui::IsItemDeactivatedAfterEdit())
                     {
-                        prop.SetByte((uint8_t)sOrigVal, i);
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                        if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                        {
+                            prop.SetByte((uint8_t)sOrigVal, i);
+                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, uint8_t(propVal));
+                        }
+                        else
+                        {
+                            prop.SetByte((uint8_t)propVal, i);
+                        }
                     }
                     else if (propVal != preVal)
                     {
