@@ -20,6 +20,8 @@
 #include "Timeline/Tracks/ScriptValueClip.h"
 #include "Timeline/Tracks/ActivateTrack.h"
 #include "Timeline/Tracks/ActivateClip.h"
+#include "Timeline/Tracks/FunctionCallTrack.h"
+#include "Timeline/Tracks/FunctionCallClip.h"
 #include "Nodes/TimelinePlayer.h"
 #include "AssetManager.h"
 #include "NetworkManager.h"
@@ -199,6 +201,8 @@ void ForceLinkage()
     FORCE_LINK_CALL(ScriptValueClip);
     FORCE_LINK_CALL(ActivateTrack);
     FORCE_LINK_CALL(ActivateClip);
+    FORCE_LINK_CALL(FunctionCallTrack);
+    FORCE_LINK_CALL(FunctionCallClip);
 
     // Widget Types
     FORCE_LINK_CALL(ArrayWidget);

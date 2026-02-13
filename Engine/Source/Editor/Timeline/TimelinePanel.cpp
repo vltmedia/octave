@@ -14,6 +14,9 @@
 #include "Timeline/Tracks/AnimationClip.h"
 #include "Timeline/Tracks/ScriptValueTrack.h"
 #include "Timeline/Tracks/ActivateTrack.h"
+#include "Timeline/Tracks/FunctionCallTrack.h"
+#include "Timeline/Tracks/FunctionCallClip.h"
+#include "Script.h"
 #include "Nodes/TimelinePlayer.h"
 #include "Nodes/Node.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
@@ -434,6 +437,8 @@ void DrawTimelinePanel()
             timeline->AddTrack(ScriptValueTrack::GetStaticType());
         if (ImGui::Selectable("Activate"))
             timeline->AddTrack(ActivateTrack::GetStaticType());
+        if (ImGui::Selectable("Function Call"))
+            timeline->AddTrack(FunctionCallTrack::GetStaticType());
         ImGui::EndPopup();
     }
 
@@ -639,6 +644,57 @@ void DrawTimelinePanel()
                         if (selClip->GetNumKeyframes() > 0 && ImGui::Selectable("Remove Last Keyframe"))
                         {
                             selClip->RemoveKeyframe(selClip->GetNumKeyframes() - 1);
+                        }
+                    }
+
+                    // "Set Function" per-keyframe submenu for FunctionCallClip
+                    if (selClip != nullptr && selClip->GetType() == FunctionCallClip::GetStaticType()
+                        && state->mTimelineSelectedKeyframe >= 0)
+                    {
+                        FunctionCallClip* fcClip = static_cast<FunctionCallClip*>(selClip);
+                        uint32_t kfIdx = (uint32_t)state->mTimelineSelectedKeyframe;
+
+                        ImGui::Separator();
+
+                        Node* fcResolvedNode = nullptr;
+                        if (state->mTimelinePreviewInstance != nullptr)
+                        {
+                            TrackInstanceData& data = state->mTimelinePreviewInstance->GetTrackData(state->mTimelineSelectedTrack);
+                            fcResolvedNode = data.mResolvedNode;
+                        }
+
+                        if (fcResolvedNode != nullptr && fcResolvedNode->GetScript() != nullptr
+                            && kfIdx < fcClip->GetNumKeyframes())
+                        {
+                            Script* script = fcResolvedNode->GetScript();
+                            if (ImGui::BeginMenu("Set Function"))
+                            {
+                                std::vector<std::string> funcNames;
+                                script->GatherFunctionNames(funcNames);
+
+                                if (funcNames.empty())
+                                {
+                                    ImGui::TextDisabled("(no functions found)");
+                                }
+                                else
+                                {
+                                    const std::string& currentFunc = fcClip->GetKeyframeFunctionName(kfIdx);
+                                    for (uint32_t fn = 0; fn < funcNames.size(); ++fn)
+                                    {
+                                        bool isCurrentFunc = (currentFunc == funcNames[fn]);
+                                        if (ImGui::Selectable(funcNames[fn].c_str(), isCurrentFunc))
+                                        {
+                                            fcClip->SetKeyframeFunctionName(kfIdx, funcNames[fn]);
+                                        }
+                                    }
+                                }
+
+                                ImGui::EndMenu();
+                            }
+                        }
+                        else
+                        {
+                            ImGui::TextDisabled("Set Function (select a keyframe on a node with a script)");
                         }
                     }
                 }

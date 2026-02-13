@@ -533,6 +533,12 @@
     <ClCompile Include="Source\Engine\Timeline\Tracks\ActivateClip.cpp">
       <Filter>Source Files\Engine\Timeline\Tracks</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Timeline\Tracks\FunctionCallTrack.cpp">
+      <Filter>Source Files\Engine\Timeline\Tracks</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Timeline\Tracks\FunctionCallClip.cpp">
+      <Filter>Source Files\Engine\Timeline\Tracks</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Nodes\3D\Audio3d.cpp">
       <Filter>Source Files\Engine\Nodes\3D</Filter>
     </ClCompile>
@@ -1096,6 +1102,12 @@
       <Filter>Source Files\Engine\Timeline\Tracks</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Timeline\Tracks\ActivateClip.h">
+      <Filter>Source Files\Engine\Timeline\Tracks</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Timeline\Tracks\FunctionCallTrack.h">
+      <Filter>Source Files\Engine\Timeline\Tracks</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Timeline\Tracks\FunctionCallClip.h">
       <Filter>Source Files\Engine\Timeline\Tracks</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Nodes\Widgets\Canvas.h">
