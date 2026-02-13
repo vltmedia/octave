@@ -546,6 +546,20 @@ void EditorState::SetControlMode(ControlMode newMode)
     SetTransformLock(TransformLock::None);
 }
 
+static void CopyPersistentUuids(Node* src, Node* dst)
+{
+    if (src == nullptr || dst == nullptr)
+        return;
+
+    dst->SetPersistentUuid(src->GetPersistentUuid());
+
+    uint32_t count = glm::min(src->GetNumChildren(), dst->GetNumChildren());
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        CopyPersistentUuids(src->GetChild(i), dst->GetChild(i));
+    }
+}
+
 void EditorState::BeginPlayInEditor()
 {
     if (mPlayInEditor)
@@ -586,6 +600,7 @@ void EditorState::BeginPlayInEditor()
         editScene->mRootNode != nullptr)
     {
         NodePtr clonedRoot = editScene->mRootNode->Clone(true, false, true);
+        CopyPersistentUuids(editScene->mRootNode.Get(), clonedRoot.Get());
         ResolveAllNodePathsRecursive(clonedRoot.Get());
         GetWorld(0)->SetRootNode(clonedRoot.Get());
     }
