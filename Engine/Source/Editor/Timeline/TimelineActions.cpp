@@ -5,6 +5,8 @@
 #include "Assets/Timeline.h"
 #include "Timeline/TimelineTrack.h"
 #include "Timeline/TimelineClip.h"
+#include "Timeline/TimelineInstance.h"
+#include "EditorState.h"
 #include "Stream.h"
 #include "Log.h"
 
@@ -291,6 +293,15 @@ void ActionTimelineBindTrack::Execute()
 
     track->SetTargetNodeUuid(mNewUuid);
     track->SetTargetNodeName(mNewName);
+
+    // Invalidate cached binding so the preview instance re-resolves the target
+    TimelineInstance* inst = GetEditorState()->mTimelinePreviewInstance;
+    if (inst != nullptr && mTrackIndex < (int32_t)timeline->GetNumTracks())
+    {
+        TrackInstanceData& data = inst->GetTrackData((uint32_t)mTrackIndex);
+        data.mResolvedNode = nullptr;
+        data.mBindingResolved = false;
+    }
 }
 
 void ActionTimelineBindTrack::Reverse()
@@ -305,6 +316,15 @@ void ActionTimelineBindTrack::Reverse()
 
     track->SetTargetNodeUuid(mOldUuid);
     track->SetTargetNodeName(mOldName);
+
+    // Invalidate cached binding so the preview instance re-resolves the target
+    TimelineInstance* inst = GetEditorState()->mTimelinePreviewInstance;
+    if (inst != nullptr && mTrackIndex < (int32_t)timeline->GetNumTracks())
+    {
+        TrackInstanceData& data = inst->GetTrackData((uint32_t)mTrackIndex);
+        data.mResolvedNode = nullptr;
+        data.mBindingResolved = false;
+    }
 }
 
 #endif

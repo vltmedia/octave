@@ -933,13 +933,12 @@ static void AssignAssetToProperty(Object* owner, PropertyOwnerType ownerType, Pr
 
         if (matchingType)
         {
-            if (ownerType != PropertyOwnerType::Count)
+            if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
             {
                 ActionManager::Get()->EXE_EditProperty(owner, ownerType, prop.mName, index, newAsset);
             }
             else
             {
-                // Skip undo/redo (for shader parameters?)
                 prop.SetAsset(newAsset, index);
             }
         }
@@ -1328,7 +1327,7 @@ void DrawAssetProperty(Property& prop, uint32_t index, Object* owner, PropertyOw
             ImGui::IsItemHovered() &&
             IsKeyJustDown(KEY_DELETE))
         {
-            if (ownerType != PropertyOwnerType::Count)
+            if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
             {
                 am->EXE_EditProperty(owner, ownerType, prop.mName, index, (Asset*) nullptr);
             }
@@ -1713,7 +1712,14 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 bool propVal = prop.GetBool(i);
                 if (ImGui::Checkbox("", &propVal))
                 {
-                    am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                    {
+                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                    }
+                    else
+                    {
+                        prop.SetBool(propVal, i);
+                    }
                 }
 
                 ImGui::SameLine();
@@ -1913,7 +1919,14 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 {
                     if (ImGui::Combo("", &propVal, prop.mEnumStrings, prop.mEnumCount))
                     {
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, (uint8_t)propVal);
+                        if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                        {
+                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, (uint8_t)propVal);
+                        }
+                        else
+                        {
+                            prop.SetByte((uint8_t)propVal, i);
+                        }
                     }
                 }
                 else if (prop.mExtra &&

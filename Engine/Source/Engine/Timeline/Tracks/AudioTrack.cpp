@@ -22,6 +22,10 @@ void AudioTrack::Evaluate(float time, Node* target, TimelineInstance* inst)
         return;
 
     Audio3D* audioNode = target->As<Audio3D>();
+    if (audioNode == nullptr)
+        return;
+
+    bool anyClipActive = false;
 
     for (uint32_t i = 0; i < mClips.size(); ++i)
     {
@@ -36,35 +40,58 @@ void AudioTrack::Evaluate(float time, Node* target, TimelineInstance* inst)
             if (soundWave == nullptr)
                 continue;
 
-            if (audioNode != nullptr)
+            anyClipActive = true;
+            audioNode->SetSoundWave(soundWave);
+            audioNode->SetLoop(clip->GetLoop());
+
+            float volume = clip->GetVolume();
+
+            // Apply fade envelope
+            float localTime = clip->GetLocalTime(time);
+            float fadeDur = clip->GetFadeInDuration();
+            if (fadeDur > 0.0f && localTime < fadeDur)
             {
-                audioNode->SetSoundWave(soundWave);
-
-                float volume = clip->GetVolume();
-
-                // Apply fade envelope
-                float localTime = clip->GetLocalTime(time);
-                float fadeDur = clip->GetFadeInDuration();
-                if (fadeDur > 0.0f && localTime < fadeDur)
-                {
-                    volume *= (localTime / fadeDur);
-                }
-
-                float fadeOut = clip->GetFadeOutDuration();
-                float timeToEnd = clip->GetEndTime() - time;
-                if (fadeOut > 0.0f && timeToEnd < fadeOut)
-                {
-                    volume *= (timeToEnd / fadeOut);
-                }
-
-                audioNode->SetVolume(volume);
-                audioNode->SetPitch(clip->GetPitch());
-
-                if (!audioNode->IsPlaying())
-                {
-                    audioNode->PlayAudio();
-                }
+                volume *= (localTime / fadeDur);
             }
+
+            float fadeOut = clip->GetFadeOutDuration();
+            float timeToEnd = clip->GetEndTime() - time;
+            if (fadeOut > 0.0f && timeToEnd < fadeOut)
+            {
+                volume *= (timeToEnd / fadeOut);
+            }
+
+            audioNode->SetVolume(volume);
+            audioNode->SetPitch(clip->GetPitch());
+
+            if (!audioNode->IsPlaying())
+            {
+                audioNode->PlayAudio();
+            }
+        }
+    }
+
+    if (!anyClipActive && audioNode->IsPlaying())
+    {
+        bool shouldStop = true;
+
+        for (uint32_t i = 0; i < mClips.size(); ++i)
+        {
+            if (mClips[i]->GetType() != AudioClip::GetStaticType())
+                continue;
+
+            AudioClip* clip = static_cast<AudioClip*>(mClips[i]);
+
+            if (time > clip->GetEndTime() && clip->GetEndMode() == AudioClipEndMode::Continue)
+            {
+                shouldStop = false;
+                break;
+            }
+        }
+
+        if (shouldStop)
+        {
+            audioNode->StopAudio();
         }
     }
 }

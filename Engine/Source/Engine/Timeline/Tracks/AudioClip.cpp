@@ -22,6 +22,8 @@ void AudioClip::SaveStream(Stream& stream)
     stream.WriteFloat(mPitch);
     stream.WriteFloat(mFadeInDuration);
     stream.WriteFloat(mFadeOutDuration);
+    stream.WriteUint32((uint32_t)mEndMode);
+    stream.WriteBool(mLoop);
 }
 
 void AudioClip::LoadStream(Stream& stream, uint32_t version)
@@ -33,6 +35,8 @@ void AudioClip::LoadStream(Stream& stream, uint32_t version)
     mPitch = stream.ReadFloat();
     mFadeInDuration = stream.ReadFloat();
     mFadeOutDuration = stream.ReadFloat();
+    mEndMode = (AudioClipEndMode)stream.ReadUint32();
+    mLoop = stream.ReadBool();
 }
 
 void AudioClip::GatherProperties(std::vector<Property>& outProps)
@@ -46,4 +50,8 @@ void AudioClip::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Float, "Pitch", this, &mPitch));
     outProps.push_back(Property(DatumType::Float, "Fade In", this, &mFadeInDuration));
     outProps.push_back(Property(DatumType::Float, "Fade Out", this, &mFadeOutDuration));
+
+    static const char* sEndModeStrings[] = { "Stop", "Continue" };
+    outProps.push_back(Property(DatumType::Integer, "End Mode", this, &mEndMode, 1, nullptr, NULL_DATUM, (int32_t)AudioClipEndMode::Count, sEndModeStrings));
+    outProps.push_back(Property(DatumType::Bool, "Loop", this, &mLoop));
 }

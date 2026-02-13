@@ -192,6 +192,8 @@ void DrawTimelinePanel()
     float contentHeight = windowSize.y - kTransportHeight;
     float trackAreaHeight = contentHeight - kRulerHeight;
 
+    bool resetTracks = false;
+
     // ========== Transport Bar ==========
     {
         ImGui::BeginGroup();
@@ -199,6 +201,7 @@ void DrawTimelinePanel()
         if (ImGui::Button("|<"))
         {
             playheadTime = 0.0f;
+            resetTracks = true;
         }
         ImGui::SameLine();
         if (ImGui::Button(">"))
@@ -209,6 +212,7 @@ void DrawTimelinePanel()
         if (ImGui::Button("||"))
         {
             state->mTimelinePreviewing = false;
+            resetTracks = true;
         }
         ImGui::SameLine();
         if (ImGui::Button(">|"))
@@ -655,6 +659,7 @@ void DrawTimelinePanel()
             {
                 playheadTime = duration;
                 state->mTimelinePreviewing = false;
+                resetTracks = true;
             }
         }
     }
@@ -682,6 +687,15 @@ void DrawTimelinePanel()
 
                 TrackInstanceData& data = inst->GetTrackData(i);
                 tracks[i]->Evaluate(playheadTime, data.mResolvedNode, inst);
+            }
+        }
+
+        if (resetTracks)
+        {
+            for (uint32_t i = 0; i < tracks.size(); ++i)
+            {
+                TrackInstanceData& data = inst->GetTrackData(i);
+                tracks[i]->Reset(data.mResolvedNode, inst);
             }
         }
     }

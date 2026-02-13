@@ -3,6 +3,13 @@
 #include "Timeline/TimelineClip.h"
 #include "AssetRef.h"
 
+enum class AudioClipEndMode
+{
+    Stop,
+    Continue,
+    Count
+};
+
 class AudioClip : public TimelineClip
 {
 public:
@@ -23,6 +30,8 @@ public:
     float GetPitch() const { return mPitch; }
     float GetFadeInDuration() const { return mFadeInDuration; }
     float GetFadeOutDuration() const { return mFadeOutDuration; }
+    AudioClipEndMode GetEndMode() const { return mEndMode; }
+    bool GetLoop() const { return mLoop; }
 
 protected:
 
@@ -31,4 +40,6 @@ protected:
     float mPitch = 1.0f;
     float mFadeInDuration = 0.0f;
     float mFadeOutDuration = 0.0f;
+    AudioClipEndMode mEndMode = AudioClipEndMode::Stop;
+    bool mLoop = false;
 };
