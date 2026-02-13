@@ -40,6 +40,8 @@ void ActivateTrack::Evaluate(float time, Node* target, TimelineInstance* inst)
     // If no clip is active at this time, restore pre-play state
     if (!anyClipActive && inst != nullptr)
     {
+        target->SetActive(false);
+        target->SetVisible(false);
         // Find our track index to access instance data
         // The caller passes the correct instance data, so the track just
         // needs to know it's not in any clip range.
