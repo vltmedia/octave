@@ -4,6 +4,14 @@
 
 #include <string>
 
+enum class AnimationWrapMode
+{
+    Loop,
+    Hold,
+    PingPong,
+    Count
+};
+
 class AnimationClip : public TimelineClip
 {
 public:
@@ -26,6 +34,7 @@ public:
     float GetBlendIn() const { return mBlendIn; }
     float GetBlendOut() const { return mBlendOut; }
     float GetWeight() const { return mWeight; }
+    AnimationWrapMode GetWrapMode() const { return mWrapMode; }
 
 protected:
 
@@ -33,4 +42,5 @@ protected:
     float mBlendIn = 0.0f;
     float mBlendOut = 0.0f;
     float mWeight = 1.0f;
+    AnimationWrapMode mWrapMode = AnimationWrapMode::Loop;
 };

@@ -2,6 +2,7 @@
 #include "Timeline/Tracks/AnimationClip.h"
 #include "Timeline/TimelineInstance.h"
 #include "Nodes/3D/SkeletalMesh3d.h"
+#include "Assets/SkeletalMesh.h"
 #include "Utilities.h"
 
 FORCE_LINK_DEF(AnimationTrack);
@@ -38,6 +39,28 @@ void AnimationTrack::Evaluate(float time, Node* target, TimelineInstance* inst)
         {
             float localTime = clip->GetLocalTime(time);
             float weight = clip->GetWeight();
+
+            // Apply wrap mode when localTime exceeds animation duration
+            AnimationWrapMode wrapMode = clip->GetWrapMode();
+            if (wrapMode != AnimationWrapMode::Hold)
+            {
+                SkeletalMesh* mesh = skelMesh->GetSkeletalMesh();
+                float animDuration = mesh ? mesh->GetAnimationDuration(animName.c_str()) : 0.0f;
+                if (animDuration > 0.0f && localTime > animDuration)
+                {
+                    if (wrapMode == AnimationWrapMode::Loop)
+                    {
+                        localTime = fmod(localTime, animDuration);
+                    }
+                    else // PingPong
+                    {
+                        float cycle = localTime / animDuration;
+                        int cycleInt = (int)cycle;
+                        float frac = cycle - cycleInt;
+                        localTime = (cycleInt % 2 == 0) ? (frac * animDuration) : ((1.0f - frac) * animDuration);
+                    }
+                }
+            }
 
             // Ensure the animation is active
             ActiveAnimation* active = skelMesh->FindActiveAnimation(animName.c_str());

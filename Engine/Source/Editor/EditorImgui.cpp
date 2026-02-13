@@ -1646,7 +1646,14 @@ static void DrawPropertyList(Object* owner, std::vector<Property>& props)
                 {
                     if (ImGui::Combo("", &propVal, prop.mEnumStrings, prop.mEnumCount))
                     {
-                        am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        if (ownerType == PropertyOwnerType::Node || ownerType == PropertyOwnerType::Asset)
+                        {
+                            am->EXE_EditProperty(owner, ownerType, prop.mName, i, propVal);
+                        }
+                        else
+                        {
+                            prop.SetInteger(propVal, i);
+                        }
                     }
                 }
                 else

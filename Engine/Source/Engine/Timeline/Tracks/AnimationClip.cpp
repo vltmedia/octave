@@ -30,6 +30,7 @@ void AnimationClip::SaveStream(Stream& stream)
     stream.WriteFloat(mBlendIn);
     stream.WriteFloat(mBlendOut);
     stream.WriteFloat(mWeight);
+    stream.WriteUint32((uint32_t)mWrapMode);
 }
 
 void AnimationClip::LoadStream(Stream& stream, uint32_t version)
@@ -40,6 +41,7 @@ void AnimationClip::LoadStream(Stream& stream, uint32_t version)
     mBlendIn = stream.ReadFloat();
     mBlendOut = stream.ReadFloat();
     mWeight = stream.ReadFloat();
+    mWrapMode = (AnimationWrapMode)stream.ReadUint32();
 }
 
 #if EDITOR
@@ -137,4 +139,7 @@ void AnimationClip::GatherProperties(std::vector<Property>& outProps)
     outProps.push_back(Property(DatumType::Float, "Blend In", this, &mBlendIn));
     outProps.push_back(Property(DatumType::Float, "Blend Out", this, &mBlendOut));
     outProps.push_back(Property(DatumType::Float, "Weight", this, &mWeight));
+
+    static const char* sWrapModeStrings[] = { "Loop", "Hold", "PingPong" };
+    outProps.push_back(Property(DatumType::Integer, "Wrap Mode", this, &mWrapMode, 1, nullptr, NULL_DATUM, (int32_t)AnimationWrapMode::Count, sWrapModeStrings));
 }
